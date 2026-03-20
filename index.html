@@ -91,19 +91,10 @@
     <div id="hint">Left-drag: rotate &nbsp;|&nbsp; Right-drag / scroll: zoom &nbsp;|&nbsp; Middle-drag: pan</div>
   </div>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
-      }
-    }
-  </script>
-
   <script type="module">
-    import * as THREE from 'three';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/controls/OrbitControls.js';
+    import { PLYLoader } from 'https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/PLYLoader.js';
 
     // ── Scene setup ──────────────────────────────────────────────────────────
     const canvas    = document.getElementById('canvas');
@@ -187,9 +178,10 @@
       box.getCenter(centre);
       const size   = box.getSize(new THREE.Vector3()).length();
 
-      currentMesh.position.sub(centre);
+      // Scale first, then offset position to account for it.
       const scale = 2 / size;
       currentMesh.scale.setScalar(scale);
+      currentMesh.position.copy(centre).multiplyScalar(-scale);
 
       scene.add(currentMesh);
 
@@ -214,7 +206,7 @@
           loadGeometry(geometry);
           status.textContent = file.name;
         } catch (err) {
-          status.textContent = 'Error loading file';
+          status.textContent = `Error: ${err.message}`;
           console.error(err);
         }
       };
