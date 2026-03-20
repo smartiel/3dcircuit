@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Circuit Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+
+    #toolbar h1 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #e94560;
+      margin-right: auto;
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    #load-btn {
+      cursor: pointer;
+      padding: 6px 14px;
+      background: #e94560;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      transition: background 0.2s;
+    }
+
+    #load-btn:hover { background: #c73652; }
+
+    #status {
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    #hint {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.75rem;
+      color: #555;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <h1>3D Circuit Viewer</h1>
+    <span id="status">No file loaded</span>
+    <button id="load-btn" onclick="document.getElementById('file-input').click()">Open .ply file</button>
+    <input type="file" id="file-input" accept=".ply" />
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="canvas"></canvas>
+    <div id="hint">Left-drag: rotate &nbsp;|&nbsp; Right-drag / scroll: zoom &nbsp;|&nbsp; Middle-drag: pan</div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+    // ── Scene setup ──────────────────────────────────────────────────────────
+    const canvas    = document.getElementById('canvas');
+    const container = document.getElementById('canvas-container');
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+
+    const scene  = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+    camera.position.set(0, 0, 3);
+
+    // ── Lights ───────────────────────────────────────────────────────────────
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(5, 10, 7);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8080ff, 0.4);
+    fillLight.position.set(-5, -5, -5);
+    scene.add(fillLight);
+
+    // ── Controls ─────────────────────────────────────────────────────────────
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+
+    // ── Resize handling ──────────────────────────────────────────────────────
+    function resize() {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ── Animation loop ───────────────────────────────────────────────────────
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ── PLY loading ──────────────────────────────────────────────────────────
+    let currentMesh = null;
+
+    function loadGeometry(geometry) {
+      if (currentMesh) {
+        scene.remove(currentMesh);
+        currentMesh.geometry.dispose();
+        currentMesh.material.dispose();
+      }
+
+      geometry.computeVertexNormals();
+
+      // Use vertex colors if present, otherwise a flat material.
+      const hasColors = geometry.hasAttribute('color');
+      const material = new THREE.MeshStandardMaterial({
+        vertexColors: hasColors,
+        color: hasColors ? 0xffffff : 0x5599dd,
+        roughness: 0.6,
+        metalness: 0.1,
+      });
+
+      currentMesh = new THREE.Mesh(geometry, material);
+      currentMesh.castShadow = true;
+      currentMesh.receiveShadow = true;
+
+      // Centre and normalise scale.
+      geometry.computeBoundingBox();
+      const box    = geometry.boundingBox;
+      const centre = new THREE.Vector3();
+      box.getCenter(centre);
+      const size   = box.getSize(new THREE.Vector3()).length();
+
+      currentMesh.position.sub(centre);
+      const scale = 2 / size;
+      currentMesh.scale.setScalar(scale);
+
+      scene.add(currentMesh);
+
+      // Reset camera.
+      camera.position.set(0, 0, 3);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const status = document.getElementById('status');
+      status.textContent = `Loading ${file.name}…`;
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const loader = new PLYLoader();
+        try {
+          const geometry = loader.parse(ev.target.result);
+          loadGeometry(geometry);
+          status.textContent = file.name;
+        } catch (err) {
+          status.textContent = 'Error loading file';
+          console.error(err);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+
+      // Allow re-selecting the same file.
+      e.target.value = '';
+    });
+  </script>
+</body>
+</html>
