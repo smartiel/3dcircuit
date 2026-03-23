@@ -617,8 +617,9 @@
 
       let GIFEncoder, quantize, applyPalette;
       try {
+        const m = await import('https://esm.sh/gifenc@1.0.1');
         ({ GIFEncoder, quantize, applyPalette } =
-          await import('https://esm.sh/gifenc@1.0.1'));
+          typeof m.GIFEncoder === 'function' ? m : m.default);
       } catch (e) {
         alert('Could not load GIF encoder: ' + e.message);
         autoRotate = savedAutoRotate;
