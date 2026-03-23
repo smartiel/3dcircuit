@@ -176,6 +176,10 @@
       cursor: pointer; padding: 1px 2px; background: none;
       flex-shrink: 0;
     }
+    .c-row input[type=checkbox] {
+      width: 14px; height: 14px; flex-shrink: 0;
+      cursor: pointer; accent-color: #e94560;
+    }
   </style>
 </head>
 <body>
@@ -273,6 +277,7 @@
     let currentMesh = null;
     let currentLabels = [];
     let showLabels = true;
+    const hiddenGateKeys = new Set();
 
     function clearLabels() {
       for (const s of currentLabels) {
@@ -405,6 +410,10 @@
     function gateColor(name) {
       return gateColors[name.toLowerCase()] ?? gateColors.other;
     }
+    function resolveGateKey(name) {
+      const k = name.toLowerCase();
+      return (k in gateColors) ? k : 'other';
+    }
 
     function parseLayout(text) {
       const layout = {};
@@ -489,6 +498,8 @@
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+          mesh.userData.gateKey = resolveGateKey(gate.name);
+          mesh.visible = !hiddenGateKeys.has(mesh.userData.gateKey);
           group.add(mesh);
           centres.push({ gate, cx: mesh.position.x, cy: mesh.position.y, cz: mesh.position.z });
         }
@@ -547,7 +558,8 @@
             normScale * (cz - normCentre.z),
           );
           sprite.scale.set(labelW, labelH, 1);
-          sprite.visible = showLabels;
+          sprite.userData.gateKey = resolveGateKey(gate.name);
+          sprite.visible = showLabels && !hiddenGateKeys.has(sprite.userData.gateKey);
           scene.add(sprite);
           currentLabels.push(sprite);
         }
@@ -654,6 +666,7 @@
     }
 
     function makeColorRow(label, key, extra) {
+      const allKeys = [key, ...extra];
       const row = document.createElement('div');
       row.className = 'c-row';
       const lbl = document.createElement('span');
@@ -667,7 +680,26 @@
         for (const k of extra) gateColors[k] = rgb;
         rebuildIfActive();
       });
-      row.append(lbl, inp);
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = true;
+      chk.title = 'Show / hide';
+      chk.addEventListener('change', () => {
+        for (const k of allKeys) {
+          if (chk.checked) hiddenGateKeys.delete(k); else hiddenGateKeys.add(k);
+        }
+        if (currentMesh instanceof THREE.Group) {
+          for (const child of currentMesh.children) {
+            if (allKeys.includes(child.userData.gateKey))
+              child.visible = chk.checked;
+          }
+        }
+        for (const s of currentLabels) {
+          if (allKeys.includes(s.userData.gateKey))
+            s.visible = chk.checked && showLabels;
+        }
+      });
+      row.append(lbl, inp, chk);
       return row;
     }
 
