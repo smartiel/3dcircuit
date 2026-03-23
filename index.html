@@ -271,7 +271,7 @@
     // ── PLY loading ──────────────────────────────────────────────────────────
     let currentMesh = null;
 
-    function loadGeometry(geometry) {
+    function loadGeometry(geometry, sideView = false) {
       if (currentMesh) {
         scene.remove(currentMesh);
         currentMesh.geometry.dispose();
@@ -307,7 +307,9 @@
       scene.add(currentMesh);
 
       // Reset camera.
-      camera.position.set(0, 0, 3);
+      // sideView: camera on the -X axis → time (Z) runs left-to-right,
+      //           qubits (Y) run bottom-to-top.
+      camera.position.set(sideView ? -3 : 0, 0, sideView ? 0 : 3);
       controls.target.set(0, 0, 0);
       controls.update();
     }
@@ -463,7 +465,7 @@
         const sched  = scheduleGates(gates);
         const ply    = buildCircuitPLY(sched, layout);
         const buf    = new TextEncoder().encode(ply).buffer;
-        loadGeometry(new PLYLoader().parse(buf));
+        loadGeometry(new PLYLoader().parse(buf), true);
         const depth  = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
         status.textContent = `${gates.length} gates · depth ${depth}`;
       } catch (err) {
