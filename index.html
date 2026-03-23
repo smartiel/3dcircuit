@@ -217,6 +217,7 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
     // ── Scene setup ──────────────────────────────────────────────────────────
     const canvas    = document.getElementById('canvas');
@@ -303,13 +304,21 @@
       return new THREE.Sprite(mat);
     }
 
+    function disposeObject3D(obj) {
+      if (!obj) return;
+      scene.remove(obj);
+      obj.traverse(child => {
+        if (child.isMesh) {
+          child.geometry.dispose();
+          (Array.isArray(child.material) ? child.material : [child.material])
+            .forEach(m => m.dispose());
+        }
+      });
+    }
+
     function loadGeometry(geometry, sideView = false) {
       clearLabels();
-      if (currentMesh) {
-        scene.remove(currentMesh);
-        currentMesh.geometry.dispose();
-        currentMesh.material.dispose();
-      }
+      disposeObject3D(currentMesh);
 
       geometry.computeVertexNormals();
 
@@ -435,53 +444,6 @@
       });
     }
 
-    function buildCircuitPLY(scheduled, layout) {
-      const TIME_STEP  = geo.timeStep;
-      const GATE_DEPTH = geo.gateDepth;
-      const MARGIN     = geo.margin;
-      const vLines = [], fLines = [];
-      let vo = 0;
-
-      for (const gate of scheduled) {
-        const positions = gate.qubits.map(q => layout[q]).filter(Boolean);
-        if (!positions.length) continue;
-
-        const xs = positions.map(p => p[0]);
-        const ys = positions.map(p => p[1]);
-        const x0 = Math.min(...xs) - MARGIN, x1 = Math.max(...xs) + MARGIN;
-        const y0 = Math.min(...ys) - MARGIN, y1 = Math.max(...ys) + MARGIN;
-        const z0 = gate.t * TIME_STEP,        z1 = z0 + GATE_DEPTH;
-        const [r, g, b] = gateColor(gate.name);
-
-        for (const [x, y, z] of [
-          [x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0],
-          [x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],
-        ]) vLines.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
-
-        // CCW-wound triangles for each of the 6 faces
-        const o = vo;
-        for (const [a, b, c] of [
-          [o+0,o+3,o+2],[o+0,o+2,o+1],  // -z
-          [o+4,o+5,o+6],[o+4,o+6,o+7],  // +z
-          [o+0,o+1,o+5],[o+0,o+5,o+4],  // -y
-          [o+3,o+7,o+6],[o+3,o+6,o+2],  // +y
-          [o+0,o+4,o+7],[o+0,o+7,o+3],  // -x
-          [o+1,o+2,o+6],[o+1,o+6,o+5],  // +x
-        ]) fLines.push(`3 ${a} ${b} ${c}`);
-        vo += 8;
-      }
-
-      return [
-        'ply', 'format ascii 1.0',
-        `element vertex ${vLines.length}`,
-        'property float x', 'property float y', 'property float z',
-        'property uchar red', 'property uchar green', 'property uchar blue',
-        `element face ${fLines.length}`,
-        'property list uchar int vertex_indices',
-        'end_header',
-        ...vLines, ...fLines,
-      ].join('\n');
-    }
 
     // ── Circuit UI state ─────────────────────────────────────────────────────
     let qasmText = null, layoutText = null;
@@ -493,39 +455,67 @@
     function buildCircuit() {
       const status = document.getElementById('status');
       try {
-        const gates    = parseQASM(qasmText);
-        const layout   = parseLayout(layoutText);
-        const sched    = scheduleGates(gates);
-        const ply      = buildCircuitPLY(sched, layout);
-        const buf      = new TextEncoder().encode(ply).buffer;
-        const geometry = new PLYLoader().parse(buf);
+        const gates  = parseQASM(qasmText);
+        const layout = parseLayout(layoutText);
+        const sched  = scheduleGates(gates);
 
-        // Capture normalisation params before loadGeometry transforms the mesh.
-        geometry.computeBoundingBox();
-        const normCentre = new THREE.Vector3();
-        geometry.boundingBox.getCenter(normCentre);
-        const normScale  = 2 / geometry.boundingBox.getSize(new THREE.Vector3()).length();
-
-        loadGeometry(geometry, true);   // also calls clearLabels()
-
-        // Place a text sprite at the centre of each gate brick.
-        // World position: normScale * localPos − normCentre  (mesh transform formula)
-        const labelW = normScale * geo.gateDepth * 0.72;
-        const labelH = labelW * 0.5;
+        // Build a Group of rounded-box meshes — one per gate.
+        const group    = new THREE.Group();
+        const centres  = [];   // local-space gate centres for sprite placement
 
         for (const gate of sched) {
           const positions = gate.qubits.map(q => layout[q]).filter(Boolean);
           if (!positions.length) continue;
+
           const xs = positions.map(p => p[0]);
           const ys = positions.map(p => p[1]);
-          const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-          const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-          const cz = gate.t * geo.timeStep + geo.gateDepth / 2;
+          const x0 = Math.min(...xs) - geo.margin, x1 = Math.max(...xs) + geo.margin;
+          const y0 = Math.min(...ys) - geo.margin, y1 = Math.max(...ys) + geo.margin;
+          const z0 = gate.t * geo.timeStep,         z1 = z0 + geo.gateDepth;
+          const w = x1 - x0, h = y1 - y0, d = z1 - z0;
+
+          const radius  = Math.min(w, h, d) * 0.18;
+          const geom    = new RoundedBoxGeometry(w, h, d, 4, radius);
+          const [r, g, b] = gateColor(gate.name);
+          const mat     = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(r / 255, g / 255, b / 255),
+            roughness: 0.45,
+            metalness: 0.18,
+          });
+          const mesh = new THREE.Mesh(geom, mat);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+          group.add(mesh);
+          centres.push({ gate, cx: mesh.position.x, cy: mesh.position.y, cz: mesh.position.z });
+        }
+
+        // Normalise the group to fit in a 2-unit sphere centred at origin.
+        const bbox = new THREE.Box3().setFromObject(group);
+        const normCentre = bbox.getCenter(new THREE.Vector3());
+        const normScale  = 2 / bbox.getSize(new THREE.Vector3()).length();
+        group.position.copy(normCentre).negate();
+        group.scale.setScalar(normScale);
+
+        clearLabels();
+        disposeObject3D(currentMesh);
+        currentMesh = group;
+        scene.add(group);
+
+        // Side-view camera.
+        camera.position.set(-3, 0, 0);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // Text sprites — world pos = normScale * localPos + group.position
+        const labelW = normScale * geo.gateDepth * 0.72;
+        const labelH = labelW * 0.5;
+        for (const { gate, cx, cy, cz } of centres) {
           const sprite = makeTextSprite(gate.name.toUpperCase());
           sprite.position.set(
-            normScale * cx - normCentre.x,
-            normScale * cy - normCentre.y,
-            normScale * cz - normCentre.z,
+            normScale * cx + group.position.x,
+            normScale * cy + group.position.y,
+            normScale * cz + group.position.z,
           );
           sprite.scale.set(labelW, labelH, 1);
           scene.add(sprite);
