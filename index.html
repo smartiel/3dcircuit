@@ -223,7 +223,6 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
     import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-    import { GIFEncoder, quantize, applyPalette } from 'https://esm.sh/gifenc@1.0.1';
 
     // ── Scene setup ──────────────────────────────────────────────────────────
     const canvas    = document.getElementById('canvas');
@@ -615,6 +614,19 @@
       renderer.setSize(GIF_SIZE, GIF_SIZE);
       camera.aspect = 1;
       camera.updateProjectionMatrix();
+
+      let GIFEncoder, quantize, applyPalette;
+      try {
+        ({ GIFEncoder, quantize, applyPalette } =
+          await import('https://esm.sh/gifenc@1.0.1'));
+      } catch (e) {
+        alert('Could not load GIF encoder: ' + e.message);
+        autoRotate = savedAutoRotate;
+        resize();
+        gifBtn.textContent = 'Export 360° GIF';
+        gifBtn.disabled = false;
+        return;
+      }
 
       const gl      = renderer.getContext();
       const pixels  = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
