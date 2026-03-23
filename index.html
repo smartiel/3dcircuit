@@ -343,9 +343,10 @@
       box.getCenter(centre);
       const size   = box.getSize(new THREE.Vector3()).length();
 
-      currentMesh.position.sub(centre);
-      const scale = 2 / size;
-      currentMesh.scale.setScalar(scale);
+      // Translate vertices so the bbox centre sits at the mesh origin,
+      // then scale uniformly — both transforms now pivot around (0,0,0).
+      geometry.translate(-centre.x, -centre.y, -centre.z);
+      currentMesh.scale.setScalar(2 / size);
 
       scene.add(currentMesh);
 
@@ -517,10 +518,12 @@
         }
 
         // Normalise the group to fit in a 2-unit sphere centred at origin.
+        // Shift every child so the bbox centre lands at the group's local origin,
+        // then scale the group — both transforms now pivot around (0,0,0).
         const bbox = new THREE.Box3().setFromObject(group);
         const normCentre = bbox.getCenter(new THREE.Vector3());
         const normScale  = 2 / bbox.getSize(new THREE.Vector3()).length();
-        group.position.copy(normCentre).negate();
+        for (const child of group.children) child.position.sub(normCentre);
         group.scale.setScalar(normScale);
 
         clearLabels();
@@ -533,15 +536,15 @@
         controls.target.set(0, 0, 0);
         controls.update();
 
-        // Text sprites — world pos = normScale * localPos + group.position
+        // Text sprites — world pos = normScale * (localPos − normCentre)
         const labelW = normScale * geo.gateDepth * 0.72;
         const labelH = labelW * 0.5;
         for (const { gate, cx, cy, cz } of centres) {
           const sprite = makeTextSprite(gate.name.toUpperCase());
           sprite.position.set(
-            normScale * cx + group.position.x,
-            normScale * cy + group.position.y,
-            normScale * cz + group.position.z,
+            normScale * (cx - normCentre.x),
+            normScale * (cy - normCentre.y),
+            normScale * (cz - normCentre.z),
           );
           sprite.scale.set(labelW, labelH, 1);
           sprite.visible = showLabels;
