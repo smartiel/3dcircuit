@@ -707,6 +707,24 @@
     (function initPanel() {
       const body = document.getElementById('settings-body');
 
+      // Background section
+      const bgSec = document.createElement('div');
+      bgSec.className = 's-section';
+      bgSec.innerHTML = '<div class="s-label">Background</div>';
+      const bgRow = document.createElement('div');
+      bgRow.className = 'c-row';
+      const bgLbl = document.createElement('span');
+      bgLbl.textContent = 'Color';
+      const bgInp = document.createElement('input');
+      bgInp.type = 'color';
+      bgInp.value = '#1a1a2e';
+      bgInp.addEventListener('input', () => {
+        scene.background.set(bgInp.value);
+      });
+      bgRow.append(bgLbl, bgInp);
+      bgSec.appendChild(bgRow);
+      body.appendChild(bgSec);
+
       // Geometry section
       const geoSec = document.createElement('div');
       geoSec.className = 's-section';
