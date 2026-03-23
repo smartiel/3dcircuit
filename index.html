@@ -272,6 +272,7 @@
     // ── PLY loading ──────────────────────────────────────────────────────────
     let currentMesh = null;
     let currentLabels = [];
+    let showLabels = true;
 
     function clearLabels() {
       for (const s of currentLabels) {
@@ -543,6 +544,7 @@
             normScale * cz + group.position.z,
           );
           sprite.scale.set(labelW, labelH, 1);
+          sprite.visible = showLabels;
           scene.add(sprite);
           currentLabels.push(sprite);
         }
@@ -702,6 +704,25 @@
       body.appendChild(wireSec);
 
       // Gate colors section
+      // Labels section
+      const lblSec = document.createElement('div');
+      lblSec.className = 's-section';
+      lblSec.innerHTML = '<div class="s-label">Labels</div>';
+      const lblRow = document.createElement('div');
+      lblRow.className = 's-row';
+      const lblSpan = document.createElement('span');
+      lblSpan.textContent = 'Show labels';
+      const lblChk = document.createElement('input');
+      lblChk.type = 'checkbox';
+      lblChk.checked = showLabels;
+      lblChk.addEventListener('change', () => {
+        showLabels = lblChk.checked;
+        for (const s of currentLabels) s.visible = showLabels;
+      });
+      lblRow.append(lblSpan, lblChk);
+      lblSec.appendChild(lblRow);
+      body.appendChild(lblSec);
+
       const colSec = document.createElement('div');
       colSec.className = 's-section';
       colSec.innerHTML = '<div class="s-label">Gate Colors</div>';
