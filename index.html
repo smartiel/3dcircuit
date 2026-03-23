@@ -782,8 +782,38 @@
       const colSec = document.createElement('div');
       colSec.className = 's-section';
       colSec.innerHTML = '<div class="s-label">Gate Colors</div>';
+
+      // Master "all gates" checkbox
+      const allRow = document.createElement('div');
+      allRow.className = 'c-row';
+      const allLbl = document.createElement('span');
+      allLbl.textContent = 'All gates';
+      const allChk = document.createElement('input');
+      allChk.type = 'checkbox';
+      allChk.checked = true;
+      allChk.title = 'Show / hide all';
+      allRow.append(allLbl, allChk);
+      colSec.appendChild(allRow);
+
       for (const [label, key, extra] of PANEL_GATES)
         colSec.appendChild(makeColorRow(label, key, extra));
+
+      // Wire master checkbox to all gate checkboxes
+      const gateChks = Array.from(colSec.querySelectorAll('input[type=checkbox]')).slice(1);
+
+      function updateAllChk() {
+        const n = gateChks.filter(c => c.checked).length;
+        allChk.indeterminate = n > 0 && n < gateChks.length;
+        allChk.checked = n === gateChks.length;
+      }
+
+      allChk.addEventListener('change', () => {
+        for (const c of gateChks)
+          if (c.checked !== allChk.checked) c.click();
+      });
+
+      for (const c of gateChks) c.addEventListener('change', updateAllChk);
+
       body.appendChild(colSec);
 
       // Toggle open/close
