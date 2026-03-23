@@ -98,6 +98,84 @@
       color: #555;
       pointer-events: none;
     }
+
+    /* ── Settings panel ───────────────────────────────────────────────────── */
+    #settings-panel {
+      position: absolute;
+      top: 0; right: 0;
+      width: 220px;
+      height: 100%;
+      background: rgba(18, 28, 54, 0.97);
+      border-left: 1px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      font-size: 0.78rem;
+    }
+    #settings-panel.hidden { display: none; }
+
+    #settings-panel header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 12px;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #e94560;
+    }
+    #settings-panel header button {
+      background: none; border: none; color: #666;
+      cursor: pointer; font-size: 0.95rem; line-height: 1;
+      padding: 2px 4px;
+    }
+    #settings-panel header button:hover { color: #fff; }
+
+    #settings-body {
+      overflow-y: auto;
+      flex: 1;
+      padding: 10px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: #0f3460 transparent;
+    }
+
+    .s-section { margin-bottom: 16px; }
+    .s-label {
+      font-size: 0.63rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #e94560;
+      margin-bottom: 8px;
+    }
+
+    /* slider rows */
+    .s-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 7px; color: #ccc;
+    }
+    .s-row > span:first-child { width: 76px; flex-shrink: 0; }
+    .s-row input[type=range] {
+      flex: 1; accent-color: #e94560;
+      cursor: pointer;
+    }
+    .s-row .val {
+      width: 30px; text-align: right; color: #888;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* color rows */
+    .c-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 5px; color: #ccc;
+    }
+    .c-row > span { flex: 1; }
+    .c-row input[type=color] {
+      width: 34px; height: 18px;
+      border: 1px solid #333; border-radius: 3px;
+      cursor: pointer; padding: 1px 2px; background: none;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -112,11 +190,17 @@
     <button class="circuit-btn" id="open-layout-btn">Open layout</button>
     <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
     <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
+    <span class="sep">│</span>
+    <button class="circuit-btn" id="settings-toggle-btn">⚙ Settings</button>
   </div>
 
   <div id="canvas-container">
     <canvas id="canvas"></canvas>
     <div id="hint">Left-drag: rotate &nbsp;|&nbsp; Right-drag / scroll: zoom &nbsp;|&nbsp; Middle-drag: pan</div>
+    <div id="settings-panel" class="hidden">
+      <header>Settings <button id="settings-close-btn" title="Close">✕</button></header>
+      <div id="settings-body"></div>
+    </div>
   </div>
 
   <script type="importmap">
@@ -256,7 +340,8 @@
     // Layout file format (one qubit per line):  q[0] 0.0 0.0
     // QASM qubit names must match layout names exactly.
 
-    const GATE_COLORS = {
+    // Mutable — updated live by the settings panel.
+    const gateColors = {
       h:   [100, 160, 255], cx:  [255,  80,  80], cy:  [255, 100,  50],
       cz:  [255, 140,  50], x:   [255, 200,  80], y:   [200, 255,  80],
       z:   [ 80, 255, 160], t:   [ 80, 220, 120], tdg: [ 60, 180, 100],
@@ -264,10 +349,13 @@
       ry:  [200, 120, 255], rz:  [220, 140, 255], u:   [160, 100, 220],
       u1:  [160, 100, 220], u2:  [160, 100, 220], u3:  [160, 100, 220],
       ccx: [220,  50,  50], swap:[255, 210,  50],
+      other: [160, 160, 160],
     };
 
+    const geo = { timeStep: 1.2, gateDepth: 0.85, margin: 0.35 };
+
     function gateColor(name) {
-      return GATE_COLORS[name.toLowerCase()] ?? [160, 160, 160];
+      return gateColors[name.toLowerCase()] ?? gateColors.other;
     }
 
     function parseLayout(text) {
@@ -312,9 +400,9 @@
     }
 
     function buildCircuitPLY(scheduled, layout) {
-      const TIME_STEP  = 1.2;
-      const GATE_DEPTH = 0.85;
-      const MARGIN     = 0.35;
+      const TIME_STEP  = geo.timeStep;
+      const GATE_DEPTH = geo.gateDepth;
+      const MARGIN     = geo.margin;
       const vLines = [], fLines = [];
       let vo = 0;
 
@@ -366,6 +454,27 @@
       document.getElementById('build-btn').disabled = !(qasmText && layoutText);
     }
 
+    function buildCircuit() {
+      const status = document.getElementById('status');
+      try {
+        const gates  = parseQASM(qasmText);
+        const layout = parseLayout(layoutText);
+        const sched  = scheduleGates(gates);
+        const ply    = buildCircuitPLY(sched, layout);
+        const buf    = new TextEncoder().encode(ply).buffer;
+        loadGeometry(new PLYLoader().parse(buf));
+        const depth  = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
+        status.textContent = `${gates.length} gates · depth ${depth}`;
+      } catch (err) {
+        status.textContent = `Error: ${err.message}`;
+        console.error(err);
+      }
+    }
+
+    function rebuildIfActive() {
+      if (qasmText && layoutText) buildCircuit();
+    }
+
     document.getElementById('open-qasm-btn').addEventListener('click', () =>
       document.getElementById('qasm-input').click());
 
@@ -391,22 +500,103 @@
       e.target.value = '';
     });
 
-    document.getElementById('build-btn').addEventListener('click', () => {
-      const status = document.getElementById('status');
-      try {
-        const gates  = parseQASM(qasmText);
-        const layout = parseLayout(layoutText);
-        const sched  = scheduleGates(gates);
-        const ply    = buildCircuitPLY(sched, layout);
-        const buf    = new TextEncoder().encode(ply).buffer;
-        loadGeometry(new PLYLoader().parse(buf));
-        const depth  = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
-        status.textContent = `${gates.length} gates · depth ${depth}`;
-      } catch (err) {
-        status.textContent = `Error: ${err.message}`;
-        console.error(err);
-      }
-    });
+    document.getElementById('build-btn').addEventListener('click', buildCircuit);
+
+    // ── Settings panel ───────────────────────────────────────────────────────
+    function hexToRgb(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    function rgbToHex([r, g, b]) {
+      return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Each entry: [display label, primary key, [...aliased keys]]
+    const PANEL_GATES = [
+      ['H',        'h',    []],
+      ['X',        'x',    []],
+      ['Y',        'y',    []],
+      ['Z',        'z',    []],
+      ['S / S†',   's',    ['sdg']],
+      ['T / T†',   't',    ['tdg']],
+      ['Rx/Ry/Rz', 'rx',   ['ry', 'rz']],
+      ['U',        'u',    ['u1', 'u2', 'u3']],
+      ['CX',       'cx',   []],
+      ['CY',       'cy',   []],
+      ['CZ',       'cz',   []],
+      ['SWAP',     'swap', []],
+      ['CCX',      'ccx',  []],
+      ['Other',    'other',[]],
+    ];
+
+    function makeSliderRow(label, key, min, max, step) {
+      const row  = document.createElement('div');
+      row.className = 's-row';
+      const lbl  = document.createElement('span');
+      lbl.textContent = label;
+      const val  = document.createElement('span');
+      val.className = 'val';
+      val.textContent = geo[key].toFixed(2);
+      const inp  = document.createElement('input');
+      inp.type = 'range';
+      inp.min = min; inp.max = max; inp.step = step;
+      inp.value = geo[key];
+      inp.addEventListener('input', () => {
+        geo[key] = parseFloat(inp.value);
+        val.textContent = geo[key].toFixed(2);
+        rebuildIfActive();
+      });
+      row.append(lbl, inp, val);
+      return row;
+    }
+
+    function makeColorRow(label, key, extra) {
+      const row = document.createElement('div');
+      row.className = 'c-row';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.value = rgbToHex(gateColors[key]);
+      inp.addEventListener('input', () => {
+        const rgb = hexToRgb(inp.value);
+        gateColors[key] = rgb;
+        for (const k of extra) gateColors[k] = rgb;
+        rebuildIfActive();
+      });
+      row.append(lbl, inp);
+      return row;
+    }
+
+    (function initPanel() {
+      const body = document.getElementById('settings-body');
+
+      // Geometry section
+      const geoSec = document.createElement('div');
+      geoSec.className = 's-section';
+      geoSec.innerHTML = '<div class="s-label">Geometry</div>';
+      geoSec.append(
+        makeSliderRow('Time step',  'timeStep',  0.5,  3.0,  0.05),
+        makeSliderRow('Gate depth', 'gateDepth', 0.05, 1.15, 0.05),
+        makeSliderRow('Margin',     'margin',    0.05, 0.8,  0.05),
+      );
+      body.appendChild(geoSec);
+
+      // Gate colors section
+      const colSec = document.createElement('div');
+      colSec.className = 's-section';
+      colSec.innerHTML = '<div class="s-label">Gate Colors</div>';
+      for (const [label, key, extra] of PANEL_GATES)
+        colSec.appendChild(makeColorRow(label, key, extra));
+      body.appendChild(colSec);
+
+      // Toggle open/close
+      const panel = document.getElementById('settings-panel');
+      document.getElementById('settings-toggle-btn').addEventListener('click', () =>
+        panel.classList.toggle('hidden'));
+      document.getElementById('settings-close-btn').addEventListener('click', () =>
+        panel.classList.add('hidden'));
+    })();
   </script>
 </body>
 </html>
