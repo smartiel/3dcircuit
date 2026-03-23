@@ -56,6 +56,28 @@
       color: #aaa;
     }
 
+    .sep {
+      color: #0f3460;
+      font-size: 1.1rem;
+      user-select: none;
+    }
+
+    .circuit-btn {
+      cursor: pointer;
+      padding: 6px 14px;
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #1a5276;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      transition: background 0.2s;
+    }
+    .circuit-btn:hover:not(:disabled) { background: #1a5276; }
+    .circuit-btn:disabled { opacity: 0.4; cursor: default; }
+
+    #build-btn { background: #1a6e42; border-color: #1a6e42; }
+    #build-btn:hover:not(:disabled) { background: #1e8a52; }
+
     #canvas-container {
       flex: 1;
       position: relative;
@@ -84,6 +106,12 @@
     <span id="status">No file loaded</span>
     <button id="load-btn" onclick="document.getElementById('file-input').click()">Open .ply file</button>
     <input type="file" id="file-input" accept=".ply" />
+    <span class="sep">│</span>
+    <button class="circuit-btn" id="open-qasm-btn">Open .qasm</button>
+    <input type="file" id="qasm-input" accept=".qasm,.openqasm" style="display:none" />
+    <button class="circuit-btn" id="open-layout-btn">Open layout</button>
+    <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
+    <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
   </div>
 
   <div id="canvas-container">
@@ -222,6 +250,162 @@
 
       // Allow re-selecting the same file.
       e.target.value = '';
+    });
+
+    // ── Circuit builder ──────────────────────────────────────────────────────
+    // Layout file format (one qubit per line):  q[0] 0.0 0.0
+    // QASM qubit names must match layout names exactly.
+
+    const GATE_COLORS = {
+      h:   [100, 160, 255], cx:  [255,  80,  80], cy:  [255, 100,  50],
+      cz:  [255, 140,  50], x:   [255, 200,  80], y:   [200, 255,  80],
+      z:   [ 80, 255, 160], t:   [ 80, 220, 120], tdg: [ 60, 180, 100],
+      s:   [140, 220, 100], sdg: [110, 190,  90], rx:  [190, 100, 255],
+      ry:  [200, 120, 255], rz:  [220, 140, 255], u:   [160, 100, 220],
+      u1:  [160, 100, 220], u2:  [160, 100, 220], u3:  [160, 100, 220],
+      ccx: [220,  50,  50], swap:[255, 210,  50],
+    };
+
+    function gateColor(name) {
+      return GATE_COLORS[name.toLowerCase()] ?? [160, 160, 160];
+    }
+
+    function parseLayout(text) {
+      const layout = {};
+      for (const line of text.split('\n')) {
+        const t = line.trim();
+        if (!t || t.startsWith('#')) continue;
+        const parts = t.split(/\s+/);
+        if (parts.length >= 3)
+          layout[parts[0]] = [parseFloat(parts[1]), parseFloat(parts[2])];
+      }
+      return layout;
+    }
+
+    function parseQASM(text) {
+      const gates = [];
+      const SKIP = ['openqasm','include','qreg','creg','barrier','measure','reset','if'];
+      for (let line of text.split('\n')) {
+        line = line.trim().replace(/\/\/.*$/, '');
+        if (!line || SKIP.some(kw => line.toLowerCase().startsWith(kw))) continue;
+        // gate_name[(params)] qubit, qubit, ...;
+        const m = line.match(/^([a-zA-Z_]\w*)(?:\([^)]*\))?\s+(.+);$/);
+        if (!m) continue;
+        const qubits = [];
+        for (const part of m[2].split(',')) {
+          const qm = part.trim().match(/(\w+)\[(\d+)\]/);
+          if (qm) qubits.push(`${qm[1]}[${qm[2]}]`);
+        }
+        if (qubits.length) gates.push({ name: m[1], qubits });
+      }
+      return gates;
+    }
+
+    function scheduleGates(gates) {
+      const nextFree = {};
+      return gates.map(gate => {
+        let t = 0;
+        for (const q of gate.qubits) t = Math.max(t, nextFree[q] ?? 0);
+        for (const q of gate.qubits) nextFree[q] = t + 1;
+        return { ...gate, t };
+      });
+    }
+
+    function buildCircuitPLY(scheduled, layout) {
+      const TIME_STEP  = 1.2;
+      const GATE_DEPTH = 0.85;
+      const MARGIN     = 0.35;
+      const vLines = [], fLines = [];
+      let vo = 0;
+
+      for (const gate of scheduled) {
+        const positions = gate.qubits.map(q => layout[q]).filter(Boolean);
+        if (!positions.length) continue;
+
+        const xs = positions.map(p => p[0]);
+        const ys = positions.map(p => p[1]);
+        const x0 = Math.min(...xs) - MARGIN, x1 = Math.max(...xs) + MARGIN;
+        const y0 = Math.min(...ys) - MARGIN, y1 = Math.max(...ys) + MARGIN;
+        const z0 = gate.t * TIME_STEP,        z1 = z0 + GATE_DEPTH;
+        const [r, g, b] = gateColor(gate.name);
+
+        for (const [x, y, z] of [
+          [x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0],
+          [x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],
+        ]) vLines.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
+
+        // CCW-wound triangles for each of the 6 faces
+        const o = vo;
+        for (const [a, b, c] of [
+          [o+0,o+3,o+2],[o+0,o+2,o+1],  // -z
+          [o+4,o+5,o+6],[o+4,o+6,o+7],  // +z
+          [o+0,o+1,o+5],[o+0,o+5,o+4],  // -y
+          [o+3,o+7,o+6],[o+3,o+6,o+2],  // +y
+          [o+0,o+4,o+7],[o+0,o+7,o+3],  // -x
+          [o+1,o+2,o+6],[o+1,o+6,o+5],  // +x
+        ]) fLines.push(`3 ${a} ${b} ${c}`);
+        vo += 8;
+      }
+
+      return [
+        'ply', 'format ascii 1.0',
+        `element vertex ${vLines.length}`,
+        'property float x', 'property float y', 'property float z',
+        'property uchar red', 'property uchar green', 'property uchar blue',
+        `element face ${fLines.length}`,
+        'property list uchar int vertex_indices',
+        'end_header',
+        ...vLines, ...fLines,
+      ].join('\n');
+    }
+
+    // ── Circuit UI state ─────────────────────────────────────────────────────
+    let qasmText = null, layoutText = null;
+
+    function updateBuildBtn() {
+      document.getElementById('build-btn').disabled = !(qasmText && layoutText);
+    }
+
+    document.getElementById('open-qasm-btn').addEventListener('click', () =>
+      document.getElementById('qasm-input').click());
+
+    document.getElementById('open-layout-btn').addEventListener('click', () =>
+      document.getElementById('layout-input').click());
+
+    document.getElementById('qasm-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const r = new FileReader();
+      r.onload = ev => { qasmText = ev.target.result; updateBuildBtn(); };
+      r.readAsText(file);
+      document.getElementById('status').textContent = `QASM: ${file.name}`;
+      e.target.value = '';
+    });
+
+    document.getElementById('layout-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const r = new FileReader();
+      r.onload = ev => { layoutText = ev.target.result; updateBuildBtn(); };
+      r.readAsText(file);
+      e.target.value = '';
+    });
+
+    document.getElementById('build-btn').addEventListener('click', () => {
+      const status = document.getElementById('status');
+      try {
+        const gates  = parseQASM(qasmText);
+        const layout = parseLayout(layoutText);
+        const sched  = scheduleGates(gates);
+        const ply    = buildCircuitPLY(sched, layout);
+        const buf    = new TextEncoder().encode(ply).buffer;
+        loadGeometry(new PLYLoader().parse(buf));
+        const depth  = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
+        status.textContent = `${gates.length} gates · depth ${depth}`;
+      } catch (err) {
+        status.textContent = `Error: ${err.message}`;
+        console.error(err);
+      }
     });
   </script>
 </body>

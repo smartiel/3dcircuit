@@ -1,0 +1,6 @@
+# qubit layout: name x y
+# 2×2 grid of qubits
+q[0] 0 0
+q[1] 1 0
+q[2] 0 1
+q[3] 1 1
