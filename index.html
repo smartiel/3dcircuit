@@ -190,6 +190,7 @@
     <button class="circuit-btn" id="open-layout-btn">Open layout</button>
     <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
     <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
+    <button class="circuit-btn" id="example-btn">Load example</button>
     <span class="sep">│</span>
     <button class="circuit-btn" id="settings-toggle-btn">⚙ Settings</button>
   </div>
@@ -501,6 +502,20 @@
     });
 
     document.getElementById('build-btn').addEventListener('click', buildCircuit);
+
+    document.getElementById('example-btn').addEventListener('click', () => {
+      qasmText = [
+        'OPENQASM 2.0;',
+        'include "qelib1.inc";',
+        'qreg q[2];',
+        'h q[0];',
+        'cx q[0],q[1];',
+      ].join('\n');
+      layoutText = 'q[0] 0.0 0.0\nq[1] 0.0 1.0';
+      updateBuildBtn();
+      buildCircuit();
+      document.getElementById('status').textContent = 'Example: H + CX (2 qubits)';
+    });
 
     // ── Settings panel ───────────────────────────────────────────────────────
     function hexToRgb(hex) {
