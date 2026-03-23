@@ -254,6 +254,15 @@
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
 
+    // ── Rotation pivot ───────────────────────────────────────────────────────
+    const rotationPivot = new THREE.Group();
+    scene.add(rotationPivot);
+
+    let autoRotate = false;
+    let rotSpeed   = 0.5; // rad/s
+
+    const clock = new THREE.Clock();
+
     // ── Resize handling ──────────────────────────────────────────────────────
     function resize() {
       const w = container.clientWidth;
@@ -268,6 +277,8 @@
     // ── Animation loop ───────────────────────────────────────────────────────
     function animate() {
       requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (autoRotate) rotationPivot.rotation.y += rotSpeed * delta;
       controls.update();
       renderer.render(scene, camera);
     }
@@ -281,7 +292,7 @@
 
     function clearLabels() {
       for (const s of currentLabels) {
-        scene.remove(s);
+        rotationPivot.remove(s);
         s.material.map?.dispose();
         s.material.dispose();
       }
@@ -312,7 +323,7 @@
 
     function disposeObject3D(obj) {
       if (!obj) return;
-      scene.remove(obj);
+      rotationPivot.remove(obj);
       obj.traverse(child => {
         if (child.isMesh) {
           child.geometry.dispose();
@@ -353,7 +364,7 @@
       geometry.translate(-centre.x, -centre.y, -centre.z);
       currentMesh.scale.setScalar(2 / size);
 
-      scene.add(currentMesh);
+      rotationPivot.add(currentMesh);
 
       // Reset camera.
       // sideView: camera on the -X axis → time (Z) runs left-to-right,
@@ -541,7 +552,7 @@
         clearLabels();
         disposeObject3D(currentMesh);
         currentMesh = group;
-        scene.add(group);
+        rotationPivot.add(group);
 
         // Side-view camera.
         camera.position.set(-3, 0, 0);
@@ -561,7 +572,7 @@
           sprite.scale.set(labelW, labelH, 1);
           sprite.userData.gateKey = resolveGateKey(gate.name);
           sprite.visible = showLabels && !hiddenGateKeys.has(sprite.userData.gateKey);
-          scene.add(sprite);
+          rotationPivot.add(sprite);
           currentLabels.push(sprite);
         }
 
@@ -778,6 +789,43 @@
       lblRow.append(lblSpan, lblChk);
       lblSec.appendChild(lblRow);
       body.appendChild(lblSec);
+
+      // Animation section
+      const animSec = document.createElement('div');
+      animSec.className = 's-section';
+      animSec.innerHTML = '<div class="s-label">Animation</div>';
+
+      const animChkRow = document.createElement('div');
+      animChkRow.className = 'c-row';
+      const animChkLbl = document.createElement('span');
+      animChkLbl.textContent = 'Auto-rotate';
+      const animChk = document.createElement('input');
+      animChk.type = 'checkbox';
+      animChk.checked = false;
+      animChk.title = 'Enable / disable rotation';
+      animChk.addEventListener('change', () => { autoRotate = animChk.checked; });
+      animChkRow.append(animChkLbl, animChk);
+      animSec.appendChild(animChkRow);
+
+      const animSpeedRow = document.createElement('div');
+      animSpeedRow.className = 's-row';
+      const animSpeedLbl = document.createElement('span');
+      animSpeedLbl.textContent = 'Speed';
+      const animSpeedVal = document.createElement('span');
+      animSpeedVal.className = 'val';
+      animSpeedVal.textContent = rotSpeed.toFixed(2);
+      const animSpeedInp = document.createElement('input');
+      animSpeedInp.type = 'range';
+      animSpeedInp.min = 0.05; animSpeedInp.max = 3.0; animSpeedInp.step = 0.05;
+      animSpeedInp.value = rotSpeed;
+      animSpeedInp.addEventListener('input', () => {
+        rotSpeed = parseFloat(animSpeedInp.value);
+        animSpeedVal.textContent = rotSpeed.toFixed(2);
+      });
+      animSpeedRow.append(animSpeedLbl, animSpeedInp, animSpeedVal);
+      animSec.appendChild(animSpeedRow);
+
+      body.appendChild(animSec);
 
       const colSec = document.createElement('div');
       colSec.className = 's-section';
