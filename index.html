@@ -195,6 +195,7 @@
     <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
     <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
     <button class="circuit-btn" id="example-btn">Load example</button>
+    <button class="circuit-btn" id="gif-btn" disabled>Export 360° GIF</button>
     <span class="sep">│</span>
     <button class="circuit-btn" id="settings-toggle-btn">⚙ Settings</button>
   </div>
@@ -222,6 +223,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
     import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+    import { GIFEncoder, quantize, applyPalette } from 'https://esm.sh/gifenc@1.0.1';
 
     // ── Scene setup ──────────────────────────────────────────────────────────
     const canvas    = document.getElementById('canvas');
@@ -365,6 +367,7 @@
       currentMesh.scale.setScalar(2 / size);
 
       rotationPivot.add(currentMesh);
+      document.getElementById('gif-btn').disabled = false;
 
       // Reset camera.
       // sideView: camera on the -X axis → time (Z) runs left-to-right,
@@ -578,6 +581,7 @@
 
         const depth = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
         status.textContent = `${gates.length} gates · depth ${depth}`;
+        document.getElementById('gif-btn').disabled = false;
       } catch (err) {
         status.textContent = `Error: ${err.message}`;
         console.error(err);
@@ -587,6 +591,69 @@
     function rebuildIfActive() {
       // Settings changes are staged; the circuit is rebuilt only when the
       // user clicks "Build 3D circuit".
+    }
+
+    async function generateGif() {
+      if (!currentMesh) return;
+
+      const GIF_SIZE = 400;
+      const FRAMES   = 36;             // one frame every 10°
+      const DELAY    = 80;             // ms per frame  (~12.5 fps)
+
+      const gifBtn = document.getElementById('gif-btn');
+      gifBtn.disabled = true;
+
+      // Save state
+      const savedRotY      = rotationPivot.rotation.y;
+      const savedAutoRotate = autoRotate;
+      autoRotate = false;
+
+      // Temporarily render at GIF_SIZE × GIF_SIZE
+      renderer.setSize(GIF_SIZE, GIF_SIZE);
+      camera.aspect = 1;
+      camera.updateProjectionMatrix();
+
+      const gl      = renderer.getContext();
+      const pixels  = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
+      const flipped = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
+      const gif     = GIFEncoder();
+
+      for (let i = 0; i < FRAMES; i++) {
+        gifBtn.textContent = `Generating… ${i + 1} / ${FRAMES}`;
+        rotationPivot.rotation.y = (i / FRAMES) * Math.PI * 2;
+        renderer.render(scene, camera);
+        gl.readPixels(0, 0, GIF_SIZE, GIF_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+        // WebGL origin is bottom-left — flip rows to get top-left origin
+        const stride = GIF_SIZE * 4;
+        for (let row = 0; row < GIF_SIZE; row++) {
+          const src = (GIF_SIZE - 1 - row) * stride;
+          flipped.set(pixels.subarray(src, src + stride), row * stride);
+        }
+
+        const palette = quantize(flipped, 256);
+        const index   = applyPalette(flipped, palette);
+        gif.writeFrame(index, GIF_SIZE, GIF_SIZE, { palette, delay: DELAY, repeat: 0 });
+
+        // Yield to keep the page responsive
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      gif.finish();
+      const blob = new Blob([gif.bytesView()], { type: 'image/gif' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'circuit_360.gif';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      // Restore state
+      rotationPivot.rotation.y = savedRotY;
+      autoRotate = savedAutoRotate;
+      resize();   // restores renderer to canvas container size
+
+      gifBtn.textContent = 'Export 360° GIF';
+      gifBtn.disabled = false;
     }
 
     document.getElementById('open-qasm-btn').addEventListener('click', () =>
@@ -615,6 +682,7 @@
     });
 
     document.getElementById('build-btn').addEventListener('click', buildCircuit);
+    document.getElementById('gif-btn').addEventListener('click', generateGif);
 
     document.getElementById('example-btn').addEventListener('click', () => {
       qasmText = [
