@@ -397,7 +397,8 @@
       other: [160, 160, 160],
     };
 
-    const geo = { timeStep: 1.2, gateDepth: 0.85, margin: 0.35 };
+    const geo = { timeStep: 1.2, gateDepth: 0.85, margin: 0.35, wireRadius: 0.04 };
+    const wireColor = [180, 180, 210];
 
     function gateColor(name) {
       return gateColors[name.toLowerCase()] ?? gateColors.other;
@@ -488,6 +489,30 @@
           mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
           group.add(mesh);
           centres.push({ gate, cx: mesh.position.x, cy: mesh.position.y, cz: mesh.position.z });
+        }
+
+        // Qubit wires — one cylinder per qubit running the full circuit depth.
+        if (sched.length > 0) {
+          const maxT   = Math.max(...sched.map(g => g.t));
+          const zStart = -geo.margin;
+          const zEnd   = maxT * geo.timeStep + geo.gateDepth + geo.margin;
+          const wireLen = zEnd - zStart;
+          const [wr, wg, wb] = wireColor;
+          const wireMat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(wr / 255, wg / 255, wb / 255),
+            roughness: 0.5, metalness: 0.1,
+          });
+          const usedQubits = [...new Set(sched.flatMap(g => g.qubits))];
+          for (const qname of usedQubits) {
+            const pos = layout[qname];
+            if (!pos) continue;
+            const wGeom = new THREE.CylinderGeometry(
+              geo.wireRadius, geo.wireRadius, wireLen, 8);
+            wGeom.rotateX(Math.PI / 2);   // orient along Z axis
+            const wMesh = new THREE.Mesh(wGeom, wireMat);
+            wMesh.position.set(pos[0], pos[1], zStart + wireLen / 2);
+            group.add(wMesh);
+          }
         }
 
         // Normalise the group to fit in a 2-unit sphere centred at origin.
@@ -654,6 +679,27 @@
         makeSliderRow('Margin',     'margin',    0.05, 0.8,  0.05),
       );
       body.appendChild(geoSec);
+
+      // Wires section
+      const wireSec = document.createElement('div');
+      wireSec.className = 's-section';
+      wireSec.innerHTML = '<div class="s-label">Wires</div>';
+
+      const wireColorRow = document.createElement('div');
+      wireColorRow.className = 'c-row';
+      const wireColorLbl = document.createElement('span');
+      wireColorLbl.textContent = 'Color';
+      const wireColorInp = document.createElement('input');
+      wireColorInp.type = 'color';
+      wireColorInp.value = rgbToHex(wireColor);
+      wireColorInp.addEventListener('input', () => {
+        const [r, g, b] = hexToRgb(wireColorInp.value);
+        wireColor[0] = r; wireColor[1] = g; wireColor[2] = b;
+        rebuildIfActive();
+      });
+      wireColorRow.append(wireColorLbl, wireColorInp);
+      wireSec.append(wireColorRow, makeSliderRow('Thickness', 'wireRadius', 0.005, 0.15, 0.005));
+      body.appendChild(wireSec);
 
       // Gate colors section
       const colSec = document.createElement('div');
