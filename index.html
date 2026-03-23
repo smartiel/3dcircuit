@@ -270,8 +270,41 @@
 
     // ── PLY loading ──────────────────────────────────────────────────────────
     let currentMesh = null;
+    let currentLabels = [];
+
+    function clearLabels() {
+      for (const s of currentLabels) {
+        scene.remove(s);
+        s.material.map?.dispose();
+        s.material.dispose();
+      }
+      currentLabels = [];
+    }
+
+    function makeTextSprite(text) {
+      const W = 128, H = 64;
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      let fs = 52;
+      ctx.font = `bold ${fs}px sans-serif`;
+      while (ctx.measureText(text).width > W * 0.88 && fs > 8) {
+        fs -= 2;
+        ctx.font = `bold ${fs}px sans-serif`;
+      }
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, W / 2, H / 2);
+      const tex = new THREE.CanvasTexture(canvas);
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+      return new THREE.Sprite(mat);
+    }
 
     function loadGeometry(geometry, sideView = false) {
+      clearLabels();
       if (currentMesh) {
         scene.remove(currentMesh);
         currentMesh.geometry.dispose();
@@ -460,13 +493,46 @@
     function buildCircuit() {
       const status = document.getElementById('status');
       try {
-        const gates  = parseQASM(qasmText);
-        const layout = parseLayout(layoutText);
-        const sched  = scheduleGates(gates);
-        const ply    = buildCircuitPLY(sched, layout);
-        const buf    = new TextEncoder().encode(ply).buffer;
-        loadGeometry(new PLYLoader().parse(buf), true);
-        const depth  = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
+        const gates    = parseQASM(qasmText);
+        const layout   = parseLayout(layoutText);
+        const sched    = scheduleGates(gates);
+        const ply      = buildCircuitPLY(sched, layout);
+        const buf      = new TextEncoder().encode(ply).buffer;
+        const geometry = new PLYLoader().parse(buf);
+
+        // Capture normalisation params before loadGeometry transforms the mesh.
+        geometry.computeBoundingBox();
+        const normCentre = new THREE.Vector3();
+        geometry.boundingBox.getCenter(normCentre);
+        const normScale  = 2 / geometry.boundingBox.getSize(new THREE.Vector3()).length();
+
+        loadGeometry(geometry, true);   // also calls clearLabels()
+
+        // Place a text sprite at the centre of each gate brick.
+        // World position: normScale * localPos − normCentre  (mesh transform formula)
+        const labelW = normScale * geo.gateDepth * 0.72;
+        const labelH = labelW * 0.5;
+
+        for (const gate of sched) {
+          const positions = gate.qubits.map(q => layout[q]).filter(Boolean);
+          if (!positions.length) continue;
+          const xs = positions.map(p => p[0]);
+          const ys = positions.map(p => p[1]);
+          const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+          const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+          const cz = gate.t * geo.timeStep + geo.gateDepth / 2;
+          const sprite = makeTextSprite(gate.name.toUpperCase());
+          sprite.position.set(
+            normScale * cx - normCentre.x,
+            normScale * cy - normCentre.y,
+            normScale * cz - normCentre.z,
+          );
+          sprite.scale.set(labelW, labelH, 1);
+          scene.add(sprite);
+          currentLabels.push(sprite);
+        }
+
+        const depth = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
         status.textContent = `${gates.length} gates · depth ${depth}`;
       } catch (err) {
         status.textContent = `Error: ${err.message}`;
