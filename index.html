@@ -281,7 +281,7 @@
     function animate() {
       requestAnimationFrame(animate);
       const delta = clock.getDelta();
-      if (autoRotate) rotationPivot.rotation.y += rotSpeed * delta;
+      if (autoRotate) rotationPivot.rotation.z += rotSpeed * delta;
       controls.update();
       renderer.render(scene, camera);
     }
