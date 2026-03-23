@@ -573,7 +573,8 @@
     }
 
     function rebuildIfActive() {
-      if (qasmText && layoutText) buildCircuit();
+      // Settings changes are staged; the circuit is rebuilt only when the
+      // user clicks "Build 3D circuit".
     }
 
     document.getElementById('open-qasm-btn').addEventListener('click', () =>
