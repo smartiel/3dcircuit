@@ -290,6 +290,7 @@
     let currentMesh = null;
     let currentLabels = [];
     let showLabels = true;
+    let showWires  = true;
     const hiddenGateKeys = new Set();
 
     function clearLabels() {
@@ -539,6 +540,8 @@
             wGeom.rotateX(Math.PI / 2);   // orient along Z axis
             const wMesh = new THREE.Mesh(wGeom, wireMat);
             wMesh.position.set(pos[0], pos[1], zStart + wireLen / 2);
+            wMesh.userData.isWire = true;
+            wMesh.visible = showWires;
             group.add(wMesh);
           }
         }
@@ -834,8 +837,24 @@
         wireColor[0] = r; wireColor[1] = g; wireColor[2] = b;
         rebuildIfActive();
       });
+      const wireVisRow = document.createElement('div');
+      wireVisRow.className = 'c-row';
+      const wireVisLbl = document.createElement('span');
+      wireVisLbl.textContent = 'Visible';
+      const wireVisChk = document.createElement('input');
+      wireVisChk.type = 'checkbox';
+      wireVisChk.checked = true;
+      wireVisChk.title = 'Show / hide wires';
+      wireVisChk.addEventListener('change', () => {
+        showWires = wireVisChk.checked;
+        if (currentMesh instanceof THREE.Group) {
+          for (const child of currentMesh.children)
+            if (child.userData.isWire) child.visible = showWires;
+        }
+      });
+      wireVisRow.append(wireVisLbl, wireVisChk);
       wireColorRow.append(wireColorLbl, wireColorInp);
-      wireSec.append(wireColorRow, makeSliderRow('Thickness', 'wireRadius', 0.005, 0.15, 0.005));
+      wireSec.append(wireVisRow, wireColorRow, makeSliderRow('Thickness', 'wireRadius', 0.005, 0.15, 0.005));
       body.appendChild(wireSec);
 
       // Gate colors section
