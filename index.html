@@ -228,12 +228,14 @@
     const canvas    = document.getElementById('canvas');
     const container = document.getElementById('canvas-container');
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
 
     const scene  = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
+    let bgColor   = '#1a1a2e';
+    let bgOpacity = 1.0;
+    renderer.setClearColor(bgColor, bgOpacity);
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
     camera.position.set(0, 0, 3);
@@ -288,8 +290,9 @@
     // ── PLY loading ──────────────────────────────────────────────────────────
     let currentMesh = null;
     let currentLabels = [];
-    let showLabels = true;
-    let showWires  = true;
+    let showLabels  = true;
+    let showWires   = true;
+    let wireOpacity = 1.0;
     const hiddenGateKeys = new Set();
 
     function clearLabels() {
@@ -529,6 +532,7 @@
           const wireMat = new THREE.MeshStandardMaterial({
             color: new THREE.Color(wr / 255, wg / 255, wb / 255),
             roughness: 0.5, metalness: 0.1,
+            transparent: wireOpacity < 1, opacity: wireOpacity,
           });
           const usedQubits = [...new Set(sched.flatMap(g => g.qubits))];
           for (const qname of usedQubits) {
@@ -692,9 +696,16 @@
       const gifBtn = document.getElementById('gif-btn');
       gifBtn.disabled = true;
 
-      const savedRotY       = rotationPivot.rotation.y;
-      const savedAutoRotate = autoRotate;
+      const savedRotY        = rotationPivot.rotation.y;
+      const savedAutoRotate  = autoRotate;
+      const savedBgOpacity   = bgOpacity;
+      const savedWireOpacity = wireOpacity;
       autoRotate = false;
+      // Force full opacity for GIF frames
+      renderer.setClearColor(bgColor, 1.0);
+      if (currentMesh instanceof THREE.Group)
+        for (const c of currentMesh.children)
+          if (c.userData.isWire) { c.material.opacity = 1; c.material.transparent = false; }
 
       renderer.setSize(GIF_SIZE, GIF_SIZE);
       camera.aspect = 1;
@@ -731,6 +742,11 @@
 
       rotationPivot.rotation.y = savedRotY;
       autoRotate = savedAutoRotate;
+      // Restore opacities
+      renderer.setClearColor(bgColor, savedBgOpacity);
+      if (currentMesh instanceof THREE.Group)
+        for (const c of currentMesh.children)
+          if (c.userData.isWire) { c.material.opacity = savedWireOpacity; c.material.transparent = savedWireOpacity < 1; }
       resize();
 
       gifBtn.textContent = 'Export 360° GIF';
@@ -881,10 +897,29 @@
       bgInp.type = 'color';
       bgInp.value = '#1a1a2e';
       bgInp.addEventListener('input', () => {
-        scene.background.set(bgInp.value);
+        bgColor = bgInp.value;
+        renderer.setClearColor(bgColor, bgOpacity);
       });
       bgRow.append(bgLbl, bgInp);
       bgSec.appendChild(bgRow);
+
+      const bgOpRow = document.createElement('div');
+      bgOpRow.className = 's-row';
+      const bgOpLbl = document.createElement('span');
+      bgOpLbl.textContent = 'Opacity';
+      const bgOpVal = document.createElement('span');
+      bgOpVal.className = 'val';
+      bgOpVal.textContent = bgOpacity.toFixed(2);
+      const bgOpInp = document.createElement('input');
+      bgOpInp.type = 'range'; bgOpInp.min = 0; bgOpInp.max = 1; bgOpInp.step = 0.01;
+      bgOpInp.value = bgOpacity;
+      bgOpInp.addEventListener('input', () => {
+        bgOpacity = parseFloat(bgOpInp.value);
+        bgOpVal.textContent = bgOpacity.toFixed(2);
+        renderer.setClearColor(bgColor, bgOpacity);
+      });
+      bgOpRow.append(bgOpLbl, bgOpInp, bgOpVal);
+      bgSec.appendChild(bgOpRow);
       body.appendChild(bgSec);
 
       // Geometry section
@@ -932,7 +967,31 @@
       });
       wireVisRow.append(wireVisLbl, wireVisChk);
       wireColorRow.append(wireColorLbl, wireColorInp);
-      wireSec.append(wireVisRow, wireColorRow, makeSliderRow('Thickness', 'wireRadius', 0.005, 0.15, 0.005));
+
+      const wireOpRow = document.createElement('div');
+      wireOpRow.className = 's-row';
+      const wireOpLbl = document.createElement('span');
+      wireOpLbl.textContent = 'Opacity';
+      const wireOpVal = document.createElement('span');
+      wireOpVal.className = 'val';
+      wireOpVal.textContent = wireOpacity.toFixed(2);
+      const wireOpInp = document.createElement('input');
+      wireOpInp.type = 'range'; wireOpInp.min = 0; wireOpInp.max = 1; wireOpInp.step = 0.01;
+      wireOpInp.value = wireOpacity;
+      wireOpInp.addEventListener('input', () => {
+        wireOpacity = parseFloat(wireOpInp.value);
+        wireOpVal.textContent = wireOpacity.toFixed(2);
+        if (currentMesh instanceof THREE.Group)
+          for (const c of currentMesh.children)
+            if (c.userData.isWire) {
+              c.material.transparent = wireOpacity < 1;
+              c.material.opacity = wireOpacity;
+              c.material.needsUpdate = true;
+            }
+      });
+      wireOpRow.append(wireOpLbl, wireOpInp, wireOpVal);
+
+      wireSec.append(wireVisRow, wireColorRow, wireOpRow, makeSliderRow('Thickness', 'wireRadius', 0.005, 0.15, 0.005));
       body.appendChild(wireSec);
 
       // Gate colors section
