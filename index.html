@@ -696,7 +696,7 @@
       const gifBtn = document.getElementById('gif-btn');
       gifBtn.disabled = true;
 
-      const savedRotY        = rotationPivot.rotation.y;
+      const savedRotY       = rotationPivot.rotation.z;
       const savedAutoRotate  = autoRotate;
       const savedBgOpacity   = bgOpacity;
       const savedWireOpacity = wireOpacity;
@@ -718,7 +718,7 @@
 
       for (let i = 0; i < FRAMES; i++) {
         gifBtn.textContent = `Capturing… ${i + 1} / ${FRAMES}`;
-        rotationPivot.rotation.y = (i / FRAMES) * Math.PI * 2;
+        rotationPivot.rotation.z = (i / FRAMES) * Math.PI * 2;
         renderer.render(scene, camera);
         gl.readPixels(0, 0, GIF_SIZE, GIF_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, rawPx);
         // Flip vertically (WebGL origin is bottom-left)
@@ -740,7 +740,7 @@
       a.click();
       URL.revokeObjectURL(url);
 
-      rotationPivot.rotation.y = savedRotY;
+      rotationPivot.rotation.z = savedRotY;
       autoRotate = savedAutoRotate;
       // Restore opacities
       renderer.setClearColor(bgColor, savedBgOpacity);
