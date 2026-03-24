@@ -595,78 +595,143 @@
       // user clicks "Build 3D circuit".
     }
 
+    // ── Inline GIF encoder (no external dependencies) ───────────────────────
+    function encodeGIF(frames, w, h, delayMs) {
+      let buf = new Uint8Array(1 << 21); let pos = 0;
+      const grow = n => { if (pos + n > buf.length) { const b = new Uint8Array(buf.length * 2); b.set(buf); buf = b; } };
+      const wr  = v   => { grow(1); buf[pos++] = v & 255; };
+      const w2  = v   => { grow(2); buf[pos++] = v & 255; buf[pos++] = (v >> 8) & 255; };
+      const wb  = arr => { grow(arr.length); buf.set(arr, pos); pos += arr.length; };
+
+      // LZW-GIF encode (minCodeSize = 8, so CLEAR=256, EOI=257)
+      function lzw(idx) {
+        const bits = []; let ob = 0, ol = 0, cs = 9, nc = 258;
+        const tab = new Map();
+        const emit = c => { ob |= c << ol; ol += cs; while (ol >= 8) { bits.push(ob & 255); ob >>>= 8; ol -= 8; } };
+        const reset = () => { tab.clear(); cs = 9; nc = 258; };
+        emit(256);
+        let p = idx[0];
+        for (let i = 1; i < idx.length; i++) {
+          const k = idx[i], key = (p << 8) | k, e = tab.get(key);
+          if (e !== undefined) { p = e; continue; }
+          emit(p);
+          if (nc < 4096) { tab.set(key, nc++); if (nc > 1 << cs) cs++; }
+          else { emit(256); reset(); }
+          p = k;
+        }
+        emit(p); emit(257);
+        if (ol) bits.push(ob & 255);
+        return bits;
+      }
+
+      // Median-cut quantiser → 256-colour palette + per-pixel indices
+      function quantise(rgba) {
+        const n = w * h;
+        const rgb = new Uint8Array(n * 3);
+        for (let i = 0; i < n; i++) { rgb[i*3]=rgba[i*4]; rgb[i*3+1]=rgba[i*4+1]; rgb[i*3+2]=rgba[i*4+2]; }
+        const ord = Uint32Array.from({length: n}, (_, i) => i);
+        const pal = [];
+        function cut(lo, hi, depth) {
+          if (hi <= lo) return;
+          if (depth === 0 || hi - lo === 1) {
+            let r=0,g=0,b=0;
+            for (let i=lo;i<hi;i++){const x=ord[i]*3;r+=rgb[x];g+=rgb[x+1];b+=rgb[x+2];}
+            const c=hi-lo; pal.push([r/c|0,g/c|0,b/c|0]); return;
+          }
+          let r0=255,r1=0,g0=255,g1=0,b0=255,b1=0;
+          for (let i=lo;i<hi;i++){const x=ord[i]*3,r=rgb[x],g=rgb[x+1],b=rgb[x+2];
+            if(r<r0)r0=r;if(r>r1)r1=r;if(g<g0)g0=g;if(g>g1)g1=g;if(b<b0)b0=b;if(b>b1)b1=b;}
+          const ch=(r1-r0>=g1-g0&&r1-r0>=b1-b0)?0:(g1-g0>=b1-b0)?1:2;
+          ord.subarray(lo,hi).sort((a,b)=>rgb[a*3+ch]-rgb[b*3+ch]);
+          const m=(lo+hi)>>1; cut(lo,m,depth-1); cut(m,hi,depth-1);
+        }
+        cut(0, n, 8);
+        while (pal.length < 256) pal.push([0,0,0]);
+        // LUT for fast nearest-colour lookup (5-bit per channel → 32768 slots)
+        const lut = new Int16Array(32768).fill(-1);
+        const near = (r,g,b) => {
+          const k=(r>>3)*1024+(g>>3)*32+(b>>3);
+          if (lut[k]>=0) return lut[k];
+          let best=0,bd=Infinity;
+          for (let j=0;j<256;j++){const dr=r-pal[j][0],dg=g-pal[j][1],db=b-pal[j][2];const d=dr*dr+dg*dg+db*db;if(d<bd){bd=d;best=j;}}
+          return lut[k]=best;
+        };
+        const palette=new Uint8Array(768), idx=new Uint8Array(n);
+        for (let i=0;i<n;i++) idx[i]=near(rgb[i*3],rgb[i*3+1],rgb[i*3+2]);
+        for (let i=0;i<256;i++){palette[i*3]=pal[i][0];palette[i*3+1]=pal[i][1];palette[i*3+2]=pal[i][2];}
+        return {palette,idx};
+      }
+
+      // GIF89a header + Netscape loop-forever extension
+      wb(new Uint8Array([71,73,70,56,57,97])); w2(w); w2(h);
+      wb(new Uint8Array([0,0,0]));
+      wb(new Uint8Array([0x21,0xff,0x0b,78,69,84,83,67,65,80,69,50,46,48,3,1,0,0,0]));
+
+      for (const rgba of frames) {
+        const {palette,idx} = quantise(rgba);
+        // Graphic Control Extension
+        wb(new Uint8Array([0x21,0xf9,4,0])); w2(delayMs/10|0); wb(new Uint8Array([0,0]));
+        // Image Descriptor + local colour table (256 entries)
+        wr(0x2c); w2(0); w2(0); w2(w); w2(h); wr(0x87); wb(palette);
+        // LZW image data split into ≤255-byte sub-blocks
+        const bits = lzw(idx); wr(8);
+        for (let i=0;i<bits.length;){const n=Math.min(255,bits.length-i);wr(n);wb(new Uint8Array(bits.slice(i,i+n)));i+=n;}
+        wr(0);
+      }
+      wr(0x3b);
+      return buf.slice(0, pos);
+    }
+
     async function generateGif() {
       if (!currentMesh) return;
 
       const GIF_SIZE = 400;
-      const FRAMES   = 36;             // one frame every 10°
-      const DELAY    = 80;             // ms per frame  (~12.5 fps)
+      const FRAMES   = 36;   // one frame every 10°
+      const DELAY    = 80;   // ms per frame (~12.5 fps)
 
       const gifBtn = document.getElementById('gif-btn');
       gifBtn.disabled = true;
 
-      // Save state
-      const savedRotY      = rotationPivot.rotation.y;
+      const savedRotY       = rotationPivot.rotation.y;
       const savedAutoRotate = autoRotate;
       autoRotate = false;
 
-      // Temporarily render at GIF_SIZE × GIF_SIZE
       renderer.setSize(GIF_SIZE, GIF_SIZE);
       camera.aspect = 1;
       camera.updateProjectionMatrix();
 
-      let GIFEncoder, quantize, applyPalette;
-      try {
-        const m = await import('https://esm.sh/gifenc@1.0.1');
-        ({ GIFEncoder, quantize, applyPalette } =
-          typeof m.GIFEncoder === 'function' ? m : m.default);
-      } catch (e) {
-        alert('Could not load GIF encoder: ' + e.message);
-        autoRotate = savedAutoRotate;
-        resize();
-        gifBtn.textContent = 'Export 360° GIF';
-        gifBtn.disabled = false;
-        return;
-      }
-
-      const gl      = renderer.getContext();
-      const pixels  = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
-      const flipped = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
-      const gif     = GIFEncoder();
+      const gl     = renderer.getContext();
+      const rawPx  = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
+      const stride = GIF_SIZE * 4;
+      const frames = [];
 
       for (let i = 0; i < FRAMES; i++) {
-        gifBtn.textContent = `Generating… ${i + 1} / ${FRAMES}`;
+        gifBtn.textContent = `Capturing… ${i + 1} / ${FRAMES}`;
         rotationPivot.rotation.y = (i / FRAMES) * Math.PI * 2;
         renderer.render(scene, camera);
-        gl.readPixels(0, 0, GIF_SIZE, GIF_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-
-        // WebGL origin is bottom-left — flip rows to get top-left origin
-        const stride = GIF_SIZE * 4;
-        for (let row = 0; row < GIF_SIZE; row++) {
-          const src = (GIF_SIZE - 1 - row) * stride;
-          flipped.set(pixels.subarray(src, src + stride), row * stride);
-        }
-
-        const palette = quantize(flipped, 256);
-        const index   = applyPalette(flipped, palette);
-        gif.writeFrame(index, GIF_SIZE, GIF_SIZE, { palette, delay: DELAY, repeat: 0 });
-
-        // Yield to keep the page responsive
+        gl.readPixels(0, 0, GIF_SIZE, GIF_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, rawPx);
+        // Flip vertically (WebGL origin is bottom-left)
+        const frame = new Uint8Array(GIF_SIZE * GIF_SIZE * 4);
+        for (let row = 0; row < GIF_SIZE; row++)
+          frame.set(rawPx.subarray((GIF_SIZE-1-row)*stride, (GIF_SIZE-row)*stride), row*stride);
+        frames.push(frame);
         await new Promise(r => setTimeout(r, 0));
       }
 
-      gif.finish();
-      const blob = new Blob([gif.bytesView()], { type: 'image/gif' });
+      gifBtn.textContent = 'Encoding…';
+      await new Promise(r => setTimeout(r, 0));
+
+      const gifBytes = encodeGIF(frames, GIF_SIZE, GIF_SIZE, DELAY);
+      const blob = new Blob([gifBytes], { type: 'image/gif' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href = url; a.download = 'circuit_360.gif';
       a.click();
       URL.revokeObjectURL(url);
 
-      // Restore state
       rotationPivot.rotation.y = savedRotY;
       autoRotate = savedAutoRotate;
-      resize();   // restores renderer to canvas container size
+      resize();
 
       gifBtn.textContent = 'Export 360° GIF';
       gifBtn.disabled = false;
