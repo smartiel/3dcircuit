@@ -497,29 +497,108 @@
           const positions = gate.qubits.map(q => layout[q]).filter(Boolean);
           if (!positions.length) continue;
 
-          const xs = positions.map(p => p[0]);
-          const ys = positions.map(p => p[1]);
-          const x0 = Math.min(...xs) - geo.margin, x1 = Math.max(...xs) + geo.margin;
-          const y0 = Math.min(...ys) - geo.margin, y1 = Math.max(...ys) + geo.margin;
-          const z0 = gate.t * geo.timeStep,         z1 = z0 + geo.gateDepth;
-          const w = x1 - x0, h = y1 - y0, d = z1 - z0;
-
-          const radius  = Math.min(w, h, d) * 0.18;
-          const geom    = new RoundedBoxGeometry(w, h, d, 4, radius);
+          const z0    = gate.t * geo.timeStep;
+          const z1    = z0 + geo.gateDepth;
+          const zMid  = (z0 + z1) / 2;
+          const depth = z1 - z0;
+          const gKey  = resolveGateKey(gate.name);
+          const vis   = !hiddenGateKeys.has(gKey);
           const [r, g, b] = gateColor(gate.name);
-          const mat     = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(r / 255, g / 255, b / 255),
-            roughness: 0.45,
-            metalness: 0.18,
-          });
-          const mesh = new THREE.Mesh(geom, mat);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-          mesh.userData.gateKey = resolveGateKey(gate.name);
-          mesh.visible = !hiddenGateKeys.has(mesh.userData.gateKey);
-          group.add(mesh);
-          centres.push({ gate, cx: mesh.position.x, cy: mesh.position.y, cz: mesh.position.z });
+          const color = new THREE.Color(r / 255, g / 255, b / 255);
+
+          const isControlled = ['cx','cy','cz'].includes(gate.name.toLowerCase())
+                                && positions.length >= 2;
+
+          if (isControlled) {
+            const ctrlPos = positions[0];
+            const tgtPos  = positions[1];
+            const mkMat   = () => new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.18 });
+            const add     = mesh => { mesh.userData.gateKey = gKey; mesh.visible = vis; mesh.castShadow = true; group.add(mesh); };
+
+            // ── Control dot ──────────────────────────────────────────────
+            const dotR    = geo.margin * 0.5;
+            const dotMesh = new THREE.Mesh(new THREE.SphereGeometry(dotR, 14, 10), mkMat());
+            dotMesh.position.set(ctrlPos[0], ctrlPos[1], zMid);
+            add(dotMesh);
+
+            // ── Stem ─────────────────────────────────────────────────────
+            const dx = tgtPos[0] - ctrlPos[0];
+            const dy = tgtPos[1] - ctrlPos[1];
+            const stemLen = Math.hypot(dx, dy);
+            if (stemLen > 1e-3) {
+              const stemMesh = new THREE.Mesh(
+                new THREE.CylinderGeometry(geo.margin * 0.1, geo.margin * 0.1, stemLen, 8),
+                mkMat()
+              );
+              stemMesh.position.set((ctrlPos[0]+tgtPos[0])/2, (ctrlPos[1]+tgtPos[1])/2, zMid);
+              stemMesh.quaternion.setFromUnitVectors(
+                new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, dy, 0).normalize()
+              );
+              add(stemMesh);
+            }
+
+            // ── Target ───────────────────────────────────────────────────
+            if (gate.name.toLowerCase() === 'cx') {
+              // ⊕  ring + two cross bars, all in the YZ plane
+              const ringR = geo.margin * 0.88;
+              const tubeR = geo.margin * 0.14;
+
+              const torusGeom = new THREE.TorusGeometry(ringR, tubeR, 8, 24);
+              torusGeom.rotateY(Math.PI / 2);  // bring into YZ plane
+              const torusMesh = new THREE.Mesh(torusGeom, mkMat());
+              torusMesh.position.set(tgtPos[0], tgtPos[1], zMid);
+              add(torusMesh);
+
+              // Bar along the ctrl→tgt direction
+              const bar1 = new THREE.Mesh(
+                new THREE.CylinderGeometry(tubeR, tubeR, ringR * 2, 8), mkMat()
+              );
+              bar1.position.set(tgtPos[0], tgtPos[1], zMid);
+              if (stemLen > 1e-3)
+                bar1.quaternion.setFromUnitVectors(
+                  new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, dy, 0).normalize()
+                );
+              add(bar1);
+
+              // Bar along Z (time axis)
+              const bar2Geom = new THREE.CylinderGeometry(tubeR, tubeR, ringR * 2, 8);
+              bar2Geom.rotateX(Math.PI / 2);
+              const bar2 = new THREE.Mesh(bar2Geom, mkMat());
+              bar2.position.set(tgtPos[0], tgtPos[1], zMid);
+              add(bar2);
+
+            } else {
+              // CY / CZ: small labeled box on target qubit
+              const bw = geo.margin * 2, bh = geo.margin * 2;
+              const bRadius = Math.min(bw, bh, depth) * 0.18;
+              const tgtMesh = new THREE.Mesh(new RoundedBoxGeometry(bw, bh, depth, 4, bRadius), mkMat());
+              tgtMesh.position.set(tgtPos[0], tgtPos[1], zMid);
+              add(tgtMesh);
+            }
+
+            centres.push({ gate, cx: (ctrlPos[0]+tgtPos[0])/2, cy: (ctrlPos[1]+tgtPos[1])/2, cz: zMid });
+
+          } else {
+            // ── Standard box spanning all qubits ─────────────────────────
+            const xs = positions.map(p => p[0]);
+            const ys = positions.map(p => p[1]);
+            const x0 = Math.min(...xs) - geo.margin, x1 = Math.max(...xs) + geo.margin;
+            const y0 = Math.min(...ys) - geo.margin, y1 = Math.max(...ys) + geo.margin;
+            const w = x1 - x0, h = y1 - y0, d = depth;
+
+            const radius = Math.min(w, h, d) * 0.18;
+            const mesh   = new THREE.Mesh(
+              new RoundedBoxGeometry(w, h, d, 4, radius),
+              new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.18 })
+            );
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.position.set((x0+x1)/2, (y0+y1)/2, zMid);
+            mesh.userData.gateKey = gKey;
+            mesh.visible = vis;
+            group.add(mesh);
+            centres.push({ gate, cx: mesh.position.x, cy: mesh.position.y, cz: mesh.position.z });
+          }
         }
 
         // Qubit wires — one cylinder per qubit running the full circuit depth.
