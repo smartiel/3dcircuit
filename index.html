@@ -696,16 +696,9 @@
       const gifBtn = document.getElementById('gif-btn');
       gifBtn.disabled = true;
 
-      const savedRotY       = rotationPivot.rotation.z;
-      const savedAutoRotate  = autoRotate;
-      const savedBgOpacity   = bgOpacity;
-      const savedWireOpacity = wireOpacity;
+      const savedRotY       = rotationPivot.rotation.y;
+      const savedAutoRotate = autoRotate;
       autoRotate = false;
-      // Force full opacity for GIF frames
-      renderer.setClearColor(bgColor, 1.0);
-      if (currentMesh instanceof THREE.Group)
-        for (const c of currentMesh.children)
-          if (c.userData.isWire) { c.material.opacity = 1; c.material.transparent = false; }
 
       renderer.setSize(GIF_SIZE, GIF_SIZE);
       camera.aspect = 1;
@@ -742,11 +735,6 @@
 
       rotationPivot.rotation.z = savedRotY;
       autoRotate = savedAutoRotate;
-      // Restore opacities
-      renderer.setClearColor(bgColor, savedBgOpacity);
-      if (currentMesh instanceof THREE.Group)
-        for (const c of currentMesh.children)
-          if (c.userData.isWire) { c.material.opacity = savedWireOpacity; c.material.transparent = savedWireOpacity < 1; }
       resize();
 
       gifBtn.textContent = 'Export 360° GIF';
