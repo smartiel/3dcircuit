@@ -191,7 +191,7 @@
     <span class="sep">│</span>
     <button class="circuit-btn" id="open-qasm-btn">Open .qasm</button>
     <input type="file" id="qasm-input" accept=".qasm,.openqasm" style="display:none" />
-    <button class="circuit-btn" id="open-layout-btn">Open layout</button>
+    <button class="circuit-btn" id="open-layout-btn">Open layout (optional)</button>
     <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
     <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
     <button class="circuit-btn" id="example-btn">Load example</button>
@@ -475,19 +475,53 @@
       });
     }
 
+    // Extract ordered qubit names from qreg declarations; fall back to gate order.
+    function extractQubits(text) {
+      const qubits = [];
+      for (const line of text.split('\n')) {
+        const m = line.trim().match(/^qreg\s+(\w+)\[(\d+)\]/i);
+        if (m) {
+          const [, name, count] = m;
+          for (let i = 0; i < +count; i++) qubits.push(`${name}[${i}]`);
+        }
+      }
+      if (!qubits.length) {
+        const seen = new Set();
+        for (const g of parseQASM(text))
+          for (const q of g.qubits) if (!seen.has(q)) { seen.add(q); qubits.push(q); }
+      }
+      return qubits;
+    }
+
+    // Place n qubits on a circle; radius ensures adjacent gate shapes don't overlap.
+    function circularLayout(qubits) {
+      const n = qubits.length;
+      if (n === 0) return {};
+      if (n === 1) return { [qubits[0]]: [0, 0] };
+      const R = (geo.margin * 1.5) / Math.sin(Math.PI / n);
+      const layout = {};
+      for (let i = 0; i < n; i++) {
+        const a = (2 * Math.PI * i / n) - Math.PI / 2;
+        layout[qubits[i]] = [R * Math.cos(a), R * Math.sin(a)];
+      }
+      return layout;
+    }
+
 
     // ── Circuit UI state ─────────────────────────────────────────────────────
     let qasmText = null, layoutText = null;
 
     function updateBuildBtn() {
-      document.getElementById('build-btn').disabled = !(qasmText && layoutText);
+      document.getElementById('build-btn').disabled = !qasmText;
     }
 
     function buildCircuit() {
       const status = document.getElementById('status');
       try {
         const gates  = parseQASM(qasmText);
-        const layout = parseLayout(layoutText);
+        const layout = layoutText
+          ? parseLayout(layoutText)
+          : circularLayout(extractQubits(qasmText));
         const sched  = scheduleGates(gates);
 
         // Build a Group of rounded-box meshes — one per gate.
@@ -667,7 +701,8 @@
         }
 
         const depth = sched.length ? Math.max(...sched.map(g => g.t)) + 1 : 0;
-        status.textContent = `${gates.length} gates · depth ${depth}`;
+        const layoutNote = layoutText ? '' : ' · circular layout';
+        status.textContent = `${gates.length} gates · depth ${depth}${layoutNote}`;
         document.getElementById('gif-btn').disabled = false;
       } catch (err) {
         status.textContent = `Error: ${err.message}`;
