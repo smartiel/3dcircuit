@@ -290,8 +290,9 @@
     // ── PLY loading ──────────────────────────────────────────────────────────
     let currentMesh = null;
     let currentLabels = [];
-    let showLabels  = true;
-    let showWires   = true;
+    let showLabels       = true;
+    let showWires        = true;
+    let fancyControlled  = true;
     let wireOpacity = 1.0;
     const hiddenGateKeys = new Set();
 
@@ -506,7 +507,8 @@
           const [r, g, b] = gateColor(gate.name);
           const color = new THREE.Color(r / 255, g / 255, b / 255);
 
-          const isControlled = ['cx','cy','cz'].includes(gate.name.toLowerCase())
+          const isControlled = fancyControlled
+                                && ['cx','cy','cz'].includes(gate.name.toLowerCase())
                                 && positions.length >= 2;
 
           if (isControlled) {
@@ -998,6 +1000,21 @@
         makeSliderRow('Gate depth', 'gateDepth', 0.05, 1.15, 0.05),
         makeSliderRow('Margin',     'margin',    0.05, 0.8,  0.05),
       );
+
+      const ctrlRow = document.createElement('div');
+      ctrlRow.className = 'c-row';
+      const ctrlLbl = document.createElement('span');
+      ctrlLbl.textContent = 'Fancy CP gates';
+      const ctrlChk = document.createElement('input');
+      ctrlChk.type = 'checkbox';
+      ctrlChk.checked = fancyControlled;
+      ctrlChk.title = 'Toggle dot/⊕ style for CX, CY, CZ';
+      ctrlChk.addEventListener('change', () => {
+        fancyControlled = ctrlChk.checked;
+        if (currentMesh instanceof THREE.Group) buildCircuit();
+      });
+      ctrlRow.append(ctrlLbl, ctrlChk);
+      geoSec.appendChild(ctrlRow);
       body.appendChild(geoSec);
 
       // Wires section
