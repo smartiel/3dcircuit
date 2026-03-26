@@ -293,7 +293,9 @@
     let showLabels       = true;
     let showWires        = true;
     let fancyControlled  = true;
-    let wireOpacity = 1.0;
+    let wireOpacity    = 1.0;
+    let pauliAsWire    = false;
+    let pauliWireColor = [100, 220, 80];
     const hiddenGateKeys = new Set();
 
     function clearLabels() {
@@ -531,6 +533,7 @@
         for (const gate of sched) {
           const positions = gate.qubits.map(q => layout[q]).filter(Boolean);
           if (!positions.length) continue;
+          if (pauliAsWire && ['x','y','z'].includes(gate.name.toLowerCase())) continue;
 
           const z0    = gate.t * geo.timeStep;
           const z1    = z0 + geo.gateDepth;
@@ -637,30 +640,53 @@
           }
         }
 
-        // Qubit wires — one cylinder per qubit running the full circuit depth.
+        // Qubit wires — built as segments so Pauli positions can be coloured.
         if (sched.length > 0) {
           const maxT   = Math.max(...sched.map(g => g.t));
           const zStart = -geo.margin;
           const zEnd   = maxT * geo.timeStep + geo.gateDepth + geo.margin;
-          const wireLen = zEnd - zStart;
-          const [wr, wg, wb] = wireColor;
-          const wireMat = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(wr / 255, wg / 255, wb / 255),
+
+          const mkMat = (rgb, r) => new THREE.MeshStandardMaterial({
+            color: new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255),
             roughness: 0.5, metalness: 0.1,
             transparent: wireOpacity < 1, opacity: wireOpacity,
           });
+          const addSeg = (pos, z0, z1, isPauli) => {
+            const len = z1 - z0;
+            if (len <= 1e-6) return;
+            const r   = isPauli ? geo.wireRadius * 2 : geo.wireRadius;
+            const mat = mkMat(isPauli ? pauliWireColor : wireColor);
+            const g2  = new THREE.CylinderGeometry(r, r, len, 8);
+            g2.rotateX(Math.PI / 2);
+            const m   = new THREE.Mesh(g2, mat);
+            m.position.set(pos[0], pos[1], z0 + len / 2);
+            m.userData.isWire = true;
+            m.visible = showWires;
+            group.add(m);
+          };
+
           const usedQubits = [...new Set(sched.flatMap(g => g.qubits))];
           for (const qname of usedQubits) {
             const pos = layout[qname];
             if (!pos) continue;
-            const wGeom = new THREE.CylinderGeometry(
-              geo.wireRadius, geo.wireRadius, wireLen, 8);
-            wGeom.rotateX(Math.PI / 2);   // orient along Z axis
-            const wMesh = new THREE.Mesh(wGeom, wireMat);
-            wMesh.position.set(pos[0], pos[1], zStart + wireLen / 2);
-            wMesh.userData.isWire = true;
-            wMesh.visible = showWires;
-            group.add(wMesh);
+
+            if (pauliAsWire) {
+              // Collect Pauli gate z-ranges on this qubit, sorted by time.
+              const pauliSegs = sched
+                .filter(g => ['x','y','z'].includes(g.name.toLowerCase()) && g.qubits.includes(qname))
+                .map(g => [g.t * geo.timeStep, g.t * geo.timeStep + geo.gateDepth])
+                .sort((a, b) => a[0] - b[0]);
+
+              let cur = zStart;
+              for (const [pz0, pz1] of pauliSegs) {
+                addSeg(pos, cur, pz0, false);
+                addSeg(pos, pz0, pz1, true);
+                cur = pz1;
+              }
+              addSeg(pos, cur, zEnd, false);
+            } else {
+              addSeg(pos, zStart, zEnd, false);
+            }
           }
         }
 
@@ -1112,6 +1138,42 @@
 
       wireSec.append(wireVisRow, wireColorRow, wireOpRow, makeSliderRow('Thickness', 'wireRadius', 0.005, 0.15, 0.005));
       body.appendChild(wireSec);
+
+      // Pauli gates section
+      const pauliSec = document.createElement('div');
+      pauliSec.className = 's-section';
+      pauliSec.innerHTML = '<div class="s-label">Pauli Gates</div>';
+
+      const pauliChkRow = document.createElement('div');
+      pauliChkRow.className = 'c-row';
+      const pauliChkLbl = document.createElement('span');
+      pauliChkLbl.textContent = 'Color wires instead';
+      const pauliChk = document.createElement('input');
+      pauliChk.type = 'checkbox';
+      pauliChk.checked = pauliAsWire;
+      pauliChk.title = 'Replace X/Y/Z gates with colored wire segments';
+      pauliChk.addEventListener('change', () => {
+        pauliAsWire = pauliChk.checked;
+        if (currentMesh instanceof THREE.Group) buildCircuit();
+      });
+      pauliChkRow.append(pauliChkLbl, pauliChk);
+      pauliSec.appendChild(pauliChkRow);
+
+      const pauliColorRow = document.createElement('div');
+      pauliColorRow.className = 'c-row';
+      const pauliColorLbl = document.createElement('span');
+      pauliColorLbl.textContent = 'Segment color';
+      const pauliColorInp = document.createElement('input');
+      pauliColorInp.type = 'color';
+      pauliColorInp.value = rgbToHex(pauliWireColor);
+      pauliColorInp.addEventListener('input', () => {
+        pauliWireColor = hexToRgb(pauliColorInp.value);
+        if (pauliAsWire && currentMesh instanceof THREE.Group) buildCircuit();
+      });
+      pauliColorRow.append(pauliColorLbl, pauliColorInp);
+      pauliSec.appendChild(pauliColorRow);
+
+      body.appendChild(pauliSec);
 
       // Gate colors section
       // Labels section
