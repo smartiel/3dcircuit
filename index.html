@@ -1072,7 +1072,6 @@
       ctrlChk.title = 'Toggle dot/⊕ style for CX, CY, CZ';
       ctrlChk.addEventListener('change', () => {
         fancyControlled = ctrlChk.checked;
-        if (currentMesh instanceof THREE.Group) buildCircuit();
       });
       ctrlRow.append(ctrlLbl, ctrlChk);
       geoSec.appendChild(ctrlRow);
@@ -1154,7 +1153,6 @@
       pauliChk.title = 'Replace X/Y/Z gates with colored wire segments';
       pauliChk.addEventListener('change', () => {
         pauliAsWire = pauliChk.checked;
-        if (currentMesh instanceof THREE.Group) buildCircuit();
       });
       pauliChkRow.append(pauliChkLbl, pauliChk);
       pauliSec.appendChild(pauliChkRow);
@@ -1168,7 +1166,6 @@
       pauliColorInp.value = rgbToHex(pauliWireColor);
       pauliColorInp.addEventListener('input', () => {
         pauliWireColor = hexToRgb(pauliColorInp.value);
-        if (pauliAsWire && currentMesh instanceof THREE.Group) buildCircuit();
       });
       pauliColorRow.append(pauliColorLbl, pauliColorInp);
       pauliSec.appendChild(pauliColorRow);
