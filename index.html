@@ -1273,6 +1273,15 @@
       document.getElementById('settings-close-btn').addEventListener('click', () =>
         panel.classList.add('hidden'));
     })();
+
+    // ── Jupyter embed auto-build hook ────────────────────────────────────────
+    if (window.__CIRCUIT_DATA__) {
+      const _d = window.__CIRCUIT_DATA__;
+      if (_d.qasm)   { document.getElementById('qasm-input').value   = _d.qasm;   qasmText   = _d.qasm; }
+      if (_d.layout) { document.getElementById('layout-input').value = _d.layout; layoutText = _d.layout; }
+      updateBuildBtn();
+      buildCircuit();
+    }
   </script>
 </body>
 </html>
