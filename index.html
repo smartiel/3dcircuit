@@ -195,6 +195,7 @@
     <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
     <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
     <button class="circuit-btn" id="example-btn">Load example</button>
+    <button class="circuit-btn" id="png-btn" disabled>Export PNG</button>
     <button class="circuit-btn" id="gif-btn" disabled>Export 360° GIF</button>
     <span class="sep">│</span>
     <button class="circuit-btn" id="settings-toggle-btn">⚙ Settings</button>
@@ -228,7 +229,7 @@
     const canvas    = document.getElementById('canvas');
     const container = document.getElementById('canvas-container');
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
 
@@ -374,6 +375,7 @@
 
       rotationPivot.add(currentMesh);
       document.getElementById('gif-btn').disabled = false;
+      document.getElementById('png-btn').disabled = false;
 
       // Reset camera.
       // sideView: camera on the -X axis → time (Z) runs left-to-right,
@@ -730,6 +732,7 @@
         const layoutNote = layoutText ? '' : ' · circular layout';
         status.textContent = `${gates.length} gates · depth ${depth}${layoutNote}`;
         document.getElementById('gif-btn').disabled = false;
+        document.getElementById('png-btn').disabled = false;
       } catch (err) {
         status.textContent = `Error: ${err.message}`;
         console.error(err);
@@ -882,6 +885,24 @@
       gifBtn.textContent = 'Export 360° GIF';
       gifBtn.disabled = false;
     }
+
+    function exportPng() {
+      if (!currentMesh) return;
+      // Render synchronously right before grabbing pixels — the WebGL
+      // drawing buffer is cleared between animation frames otherwise.
+      renderer.render(scene, camera);
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'circuit.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    }
+
+    document.getElementById('png-btn').addEventListener('click', exportPng);
 
     document.getElementById('open-qasm-btn').addEventListener('click', () =>
       document.getElementById('qasm-input').click());
