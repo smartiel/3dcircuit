@@ -180,6 +180,30 @@
       width: 14px; height: 14px; flex-shrink: 0;
       cursor: pointer; accent-color: #e94560;
     }
+
+    /* camera coordinate rows */
+    .cam-row {
+      display: grid;
+      grid-template-columns: 32px 1fr 1fr 1fr;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 5px;
+      color: #ccc;
+    }
+    .cam-row > span { color: #888; font-size: 0.7rem; }
+    .cam-row input[type=number] {
+      width: 100%; min-width: 0;
+      background: #0d1b2a; color: #ccc;
+      border: 1px solid #333; border-radius: 3px;
+      padding: 2px 4px; font-size: 0.72rem;
+      text-align: right; box-sizing: border-box;
+    }
+    .cam-reset-btn {
+      width: 100%; margin-top: 4px; padding: 4px 0;
+      background: #0f3460; color: #ccc; border: 1px solid #1a4a80;
+      border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+    }
+    .cam-reset-btn:hover { background: #1a4a80; color: #fff; }
   </style>
 </head>
 <body>
@@ -264,6 +288,7 @@
 
     let autoRotate = false;
     let rotSpeed   = 0.5; // rad/s
+    let cameraInitialized = false;
 
     const clock = new THREE.Clock();
 
@@ -706,10 +731,13 @@
         currentMesh = group;
         rotationPivot.add(group);
 
-        // Side-view camera.
-        camera.position.set(-3, 0, 0);
-        controls.target.set(0, 0, 0);
-        controls.update();
+        // Only set default camera on first build; preserve position on rebuilds.
+        if (!cameraInitialized) {
+          camera.position.set(-3, 0, 0);
+          controls.target.set(0, 0, 0);
+          controls.update();
+          cameraInitialized = true;
+        }
 
         // Text sprites — world pos = normScale * (localPos − normCentre)
         const labelW = normScale * geo.gateDepth * 0.72;
@@ -1249,6 +1277,68 @@
       animSec.appendChild(animSpeedRow);
 
       body.appendChild(animSec);
+
+      // Camera section
+      const camSec = document.createElement('div');
+      camSec.className = 's-section';
+      camSec.innerHTML = '<div class="s-label">Camera</div>';
+
+      const CAM_DECIMALS = 3;
+      const fmt = v => v.toFixed(CAM_DECIMALS);
+      const parse = s => { const v = parseFloat(s); return isNaN(v) ? 0 : v; };
+
+      function makeCamRow(label, getters, setters) {
+        const row = document.createElement('div');
+        row.className = 'cam-row';
+        const lbl = document.createElement('span');
+        lbl.textContent = label;
+        row.appendChild(lbl);
+        const inps = getters.map((get, i) => {
+          const inp = document.createElement('input');
+          inp.type = 'number'; inp.step = '0.01';
+          inp.value = fmt(get());
+          inp.addEventListener('change', () => {
+            setters[i](parse(inp.value));
+            controls.update();
+          });
+          row.appendChild(inp);
+          return inp;
+        });
+        return { row, inps };
+      }
+
+      const { row: posRow, inps: posInps } = makeCamRow(
+        'Pos',
+        [() => camera.position.x, () => camera.position.y, () => camera.position.z],
+        [v => { camera.position.x = v; }, v => { camera.position.y = v; }, v => { camera.position.z = v; }]
+      );
+      const { row: tgtRow, inps: tgtInps } = makeCamRow(
+        'Target',
+        [() => controls.target.x, () => controls.target.y, () => controls.target.z],
+        [v => { controls.target.x = v; }, v => { controls.target.y = v; }, v => { controls.target.z = v; }]
+      );
+
+      // Sync inputs whenever the camera moves (OrbitControls fires 'change')
+      controls.addEventListener('change', () => {
+        [camera.position.x, camera.position.y, camera.position.z].forEach((v, i) => {
+          if (document.activeElement !== posInps[i]) posInps[i].value = fmt(v);
+        });
+        [controls.target.x, controls.target.y, controls.target.z].forEach((v, i) => {
+          if (document.activeElement !== tgtInps[i]) tgtInps[i].value = fmt(v);
+        });
+      });
+
+      const camResetBtn = document.createElement('button');
+      camResetBtn.textContent = 'Reset camera';
+      camResetBtn.className = 'cam-reset-btn';
+      camResetBtn.addEventListener('click', () => {
+        camera.position.set(-3, 0, 0);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      });
+
+      camSec.append(posRow, tgtRow, camResetBtn);
+      body.appendChild(camSec);
 
       const colSec = document.createElement('div');
       colSec.className = 's-section';
