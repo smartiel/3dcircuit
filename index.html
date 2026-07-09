@@ -698,17 +698,41 @@
             if (!pos) continue;
 
             if (pauliAsWire) {
-              // Collect Pauli gate z-ranges on this qubit, sorted by time.
-              const pauliSegs = sched
-                .filter(g => ['x','y','z'].includes(g.name.toLowerCase()) && g.qubits.includes(qname))
-                .map(g => [g.t * geo.timeStep, g.t * geo.timeStep + geo.gateDepth])
-                .sort((a, b) => a[0] - b[0]);
+              const isP = g => ['x','y','z'].includes(g.name.toLowerCase());
+              // All gates on this qubit, sorted by time slot.
+              const qGates = sched.filter(g => g.qubits.includes(qname)).sort((a, b) => a.t - b.t);
+
+              // For each Pauli gate: color from the end of the previous non-Pauli
+              // gate (or circuit start) to the start of the next non-Pauli gate
+              // (or circuit end), so the entire idle wire around it is highlighted.
+              const coloredRanges = [];
+              for (let i = 0; i < qGates.length; i++) {
+                if (!isP(qGates[i])) continue;
+                let r0 = zStart;
+                for (let j = i - 1; j >= 0; j--) {
+                  if (!isP(qGates[j])) { r0 = qGates[j].t * geo.timeStep + geo.gateDepth; break; }
+                }
+                let r1 = zEnd;
+                for (let j = i + 1; j < qGates.length; j++) {
+                  if (!isP(qGates[j])) { r1 = qGates[j].t * geo.timeStep; break; }
+                }
+                coloredRanges.push([r0, r1]);
+              }
+
+              // Merge overlapping ranges (handles consecutive Pauli runs).
+              coloredRanges.sort((a, b) => a[0] - b[0]);
+              const merged = [];
+              for (const [r0, r1] of coloredRanges) {
+                if (merged.length && r0 <= merged[merged.length - 1][1])
+                  merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], r1);
+                else merged.push([r0, r1]);
+              }
 
               let cur = zStart;
-              for (const [pz0, pz1] of pauliSegs) {
-                addSeg(pos, cur, pz0, false);
-                addSeg(pos, pz0, pz1, true);
-                cur = pz1;
+              for (const [r0, r1] of merged) {
+                addSeg(pos, cur, r0, false);
+                addSeg(pos, r0, r1, true);
+                cur = r1;
               }
               addSeg(pos, cur, zEnd, false);
             } else {
