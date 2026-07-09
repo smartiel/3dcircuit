@@ -219,7 +219,7 @@
     <input type="file" id="layout-input" accept=".txt,.csv" style="display:none" />
     <button class="circuit-btn" id="build-btn" disabled>Build 3D circuit</button>
     <button class="circuit-btn" id="example-btn">Load example</button>
-    <button class="circuit-btn" id="png-btn" disabled>Export PNG</button>
+    <button class="circuit-btn" id="png-btn" disabled>Export SVG</button>
     <button class="circuit-btn" id="gif-btn" disabled>Export 360° GIF</button>
     <span class="sep">│</span>
     <button class="circuit-btn" id="settings-toggle-btn">⚙ Settings</button>
@@ -914,23 +914,34 @@
       gifBtn.disabled = false;
     }
 
-    function exportPng() {
+    function exportSvg() {
       if (!currentMesh) return;
-      // Render synchronously right before grabbing pixels — the WebGL
-      // drawing buffer is cleared between animation frames otherwise.
+      // Render synchronously — the WebGL drawing buffer is cleared between frames.
       renderer.render(scene, camera);
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'circuit.png';
-        a.click();
-        URL.revokeObjectURL(url);
-      }, 'image/png');
+      const w = canvas.width;
+      const h = canvas.height;
+      const dataUrl = canvas.toDataURL('image/png');
+      // Embed the rasterized WebGL output inside an SVG <image> element.
+      // This preserves exact lighting/shading while producing a valid SVG file
+      // that scales without aliasing in vector editors.
+      const svg = [
+        `<?xml version="1.0" encoding="UTF-8"?>`,
+        `<svg xmlns="http://www.w3.org/2000/svg"`,
+        `     xmlns:xlink="http://www.w3.org/1999/xlink"`,
+        `     width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
+        `  <image width="${w}" height="${h}" xlink:href="${dataUrl}"/>`,
+        `</svg>`,
+      ].join('\n');
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'circuit.svg';
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
-    document.getElementById('png-btn').addEventListener('click', exportPng);
+    document.getElementById('png-btn').addEventListener('click', exportSvg);
 
     document.getElementById('open-qasm-btn').addEventListener('click', () =>
       document.getElementById('qasm-input').click());
