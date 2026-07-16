@@ -266,7 +266,8 @@
     camera.position.set(0, 0, 3);
 
     // ── Lights ───────────────────────────────────────────────────────────────
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(5, 10, 7);
@@ -1275,6 +1276,108 @@
       lblRow.append(lblSpan, lblChk);
       lblSec.appendChild(lblRow);
       body.appendChild(lblSec);
+
+      // Lighting section
+      const lightSec = document.createElement('div');
+      lightSec.className = 's-section';
+      lightSec.innerHTML = '<div class="s-label">Lighting</div>';
+
+      // Convert (azimuth deg, elevation deg) → unit vector × radius
+      function sphericalToPos(azDeg, elDeg, r = 12) {
+        const az = azDeg * Math.PI / 180;
+        const el = elDeg * Math.PI / 180;
+        return [r * Math.cos(el) * Math.sin(az), r * Math.sin(el), r * Math.cos(el) * Math.cos(az)];
+      }
+
+      function makeLightSubsection(label, light, initColor, initIntensity, initAz, initEl, hasDir) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-bottom:10px;border-left:2px solid #1a3a60;padding-left:8px;';
+
+        const title = document.createElement('div');
+        title.textContent = label;
+        title.style.cssText = 'color:#99b;font-size:0.7rem;margin-bottom:5px;';
+        wrap.appendChild(title);
+
+        // Color + intensity row
+        const colorRow = document.createElement('div');
+        colorRow.className = 'c-row';
+        const colorLbl = document.createElement('span');
+        colorLbl.textContent = 'Color';
+        const colorInp = document.createElement('input');
+        colorInp.type = 'color';
+        colorInp.value = initColor;
+        colorInp.addEventListener('input', () => { light.color.set(colorInp.value); });
+        colorRow.append(colorLbl, colorInp);
+        wrap.appendChild(colorRow);
+
+        const intRow = document.createElement('div');
+        intRow.className = 's-row';
+        const intLbl = document.createElement('span');
+        intLbl.textContent = 'Intensity';
+        const intVal = document.createElement('span');
+        intVal.className = 'val';
+        intVal.textContent = initIntensity.toFixed(2);
+        const intInp = document.createElement('input');
+        intInp.type = 'range'; intInp.min = 0; intInp.max = 3; intInp.step = 0.05;
+        intInp.value = initIntensity;
+        intInp.addEventListener('input', () => {
+          light.intensity = parseFloat(intInp.value);
+          intVal.textContent = light.intensity.toFixed(2);
+        });
+        intRow.append(intLbl, intInp, intVal);
+        wrap.appendChild(intRow);
+
+        if (hasDir) {
+          let az = initAz, el = initEl;
+          const setPos = () => { const [x,y,z] = sphericalToPos(az, el); light.position.set(x, y, z); };
+
+          const azRow = document.createElement('div');
+          azRow.className = 's-row';
+          const azLbl = document.createElement('span');
+          azLbl.textContent = 'Azimuth';
+          const azVal = document.createElement('span');
+          azVal.className = 'val';
+          azVal.textContent = `${az}°`;
+          const azInp = document.createElement('input');
+          azInp.type = 'range'; azInp.min = -180; azInp.max = 180; azInp.step = 1;
+          azInp.value = az;
+          azInp.addEventListener('input', () => {
+            az = parseFloat(azInp.value);
+            azVal.textContent = `${az}°`;
+            setPos();
+          });
+          azRow.append(azLbl, azInp, azVal);
+          wrap.appendChild(azRow);
+
+          const elRow = document.createElement('div');
+          elRow.className = 's-row';
+          const elLbl = document.createElement('span');
+          elLbl.textContent = 'Elevation';
+          const elVal = document.createElement('span');
+          elVal.className = 'val';
+          elVal.textContent = `${el}°`;
+          const elInp = document.createElement('input');
+          elInp.type = 'range'; elInp.min = -90; elInp.max = 90; elInp.step = 1;
+          elInp.value = el;
+          elInp.addEventListener('input', () => {
+            el = parseFloat(elInp.value);
+            elVal.textContent = `${el}°`;
+            setPos();
+          });
+          elRow.append(elLbl, elInp, elVal);
+          wrap.appendChild(elRow);
+        }
+
+        return wrap;
+      }
+
+      // Initial azimuth/elevation derived from the hardcoded positions:
+      //   dirLight  (5, 10, 7)  → az ≈ 35°, el ≈ 53°
+      //   fillLight (-5,-5,-5)  → az ≈ -135°, el ≈ -35°
+      lightSec.appendChild(makeLightSubsection('Ambient',   ambientLight, '#ffffff', 0.6,    0,    0, false));
+      lightSec.appendChild(makeLightSubsection('Key light',  dirLight,   '#ffffff', 1.2,   36,   49, true));
+      lightSec.appendChild(makeLightSubsection('Fill light', fillLight,  '#8080ff', 0.4, -135,  -35, true));
+      body.appendChild(lightSec);
 
       // Animation section
       const animSec = document.createElement('div');
