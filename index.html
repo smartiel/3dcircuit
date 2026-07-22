@@ -1531,6 +1531,31 @@
       updateBuildBtn();
       buildCircuit();
     }
+
+    // ── URL hash auto-load (#qasm=...&layout=...) ────────────────────────────
+    // Lets other apps deep-link a circuit: values are percent-encoded
+    // (encodeURIComponent) and carried in the URL fragment (never sent to the
+    // server, so large circuits are fine on static hosts).
+    (function () {
+      const raw = location.hash.replace(/^#/, '');
+      if (!raw) return;
+      const params = {};
+      for (const part of raw.split('&')) {
+        const eq = part.indexOf('=');
+        if (eq === -1) continue;
+        try { params[part.slice(0, eq)] = decodeURIComponent(part.slice(eq + 1)); }
+        catch (_) { /* skip malformed fragment */ }
+      }
+      if (!params.qasm) return;
+      qasmText = params.qasm;
+      if (params.layout) layoutText = params.layout;
+      updateBuildBtn();
+      buildCircuit();
+      const status = document.getElementById('status');
+      if (status) {
+        status.textContent = 'Loaded from link' + (params.layout ? '' : ' · circular layout');
+      }
+    })();
   </script>
 </body>
 </html>
