@@ -459,6 +459,20 @@
     function gateColor(name) {
       return gateColors[name.toLowerCase()] ?? gateColors.other;
     }
+
+    // When a set of "check" qubit names is provided (e.g. deep-linked from the
+    // Paulice app), the default coloring emphasizes check vs. original gates:
+    // any gate touching a check qubit is purple, the rest are dark green.
+    let checkQubitNames = null; // Set<string> of qubit names, or null
+    const CHECK_GATE_RGB    = [168,  85, 247]; // purple
+    const ORIGINAL_GATE_RGB = [ 26, 110,  66]; // dark green
+    function gateRGB(gate) {
+      if (checkQubitNames) {
+        const isCheck = gate.qubits.some(q => checkQubitNames.has(q));
+        return isCheck ? CHECK_GATE_RGB : ORIGINAL_GATE_RGB;
+      }
+      return gateColor(gate.name);
+    }
     function resolveGateKey(name) {
       const k = name.toLowerCase();
       return (k in gateColors) ? k : 'other';
@@ -569,7 +583,7 @@
           const depth = z1 - z0;
           const gKey  = resolveGateKey(gate.name);
           const vis   = !hiddenGateKeys.has(gKey);
-          const [r, g, b] = gateColor(gate.name);
+          const [r, g, b] = gateRGB(gate);
           const color = new THREE.Color(r / 255, g / 255, b / 255);
 
           const isControlled = fancyControlled
@@ -1549,11 +1563,20 @@
       if (!params.qasm) return;
       qasmText = params.qasm;
       if (params.layout) layoutText = params.layout;
+      // Optional: qubit indices that host checks. When present, gates touching
+      // them render purple (checks) and the rest dark green (original circuit).
+      if (params.checks) {
+        checkQubitNames = new Set(
+          params.checks.split(',').map(s => `q[${s.trim()}]`).filter(n => n !== 'q[]'),
+        );
+      }
       updateBuildBtn();
       buildCircuit();
       const status = document.getElementById('status');
       if (status) {
-        status.textContent = 'Loaded from link' + (params.layout ? '' : ' · circular layout');
+        status.textContent = 'Loaded from link'
+          + (params.checks ? ' · checks highlighted' : '')
+          + (params.layout ? '' : ' · circular layout');
       }
     })();
   </script>
